@@ -693,6 +693,13 @@ func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
+	if strings.HasSuffix(rel, "/@latest") {
+		if s.serveLatestFromCache(w, r, strings.TrimSuffix(rel, "/@latest")) {
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 	target := filepath.Join(s.proxyBaseDir(), filepath.FromSlash(rel))
 	if st, err := os.Stat(target); err == nil && !st.IsDir() {
 		http.ServeFile(w, r, target)
@@ -705,6 +712,175 @@ func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.NotFound(w, r)
+}
+
+func (s *server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, escapedModulePath string) bool {
+	type latestCandidate struct {
+		version string
+		body    []byte
+	}
+
+	baseDirs := []string{s.proxyBaseDir(), filepath.Join(s.cacheDir, "proxy")}
+	var best *latestCandidate
+
+	for _, base := range baseDirs {
+		versionDir := filepath.Join(base, filepath.FromSlash(escapedModulePath), "@v")
+		entries, err := os.ReadDir(versionDir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
+				continue
+			}
+
+			escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
+			version, err := unescapeModuleVersion(escapedVersion)
+			if err != nil {
+				version = escapedVersion
+			}
+
+			infoPath := filepath.Join(versionDir, ent.Name())
+			body, err := os.ReadFile(infoPath)
+			if err != nil {
+				continue
+			}
+
+			if best == nil || compareModuleVersions(version, best.version) > 0 {
+				best = &latestCandidate{
+					version: version,
+					body:    body,
+				}
+			}
+		}
+	}
+
+	if best == nil {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	http.ServeContent(w, r, "@latest", time.Time{}, strings.NewReader(string(best.body)))
+	return true
+}
+
+func compareModuleVersions(a, b string) int {
+	pa, oka := parseModuleVersion(a)
+	pb, okb := parseModuleVersion(b)
+	if !oka || !okb {
+		return strings.Compare(a, b)
+	}
+
+	for i := 0; i < 3; i++ {
+		if pa.core[i] != pb.core[i] {
+			if pa.core[i] > pb.core[i] {
+				return 1
+			}
+			return -1
+		}
+	}
+	if pa.pre == "" && pb.pre == "" {
+		return 0
+	}
+	if pa.pre == "" {
+		return 1
+	}
+	if pb.pre == "" {
+		return -1
+	}
+	return comparePreRelease(pa.pre, pb.pre)
+}
+
+type parsedModuleVersion struct {
+	core [3]int64
+	pre  string
+}
+
+func parseModuleVersion(v string) (parsedModuleVersion, bool) {
+	if !strings.HasPrefix(v, "v") {
+		return parsedModuleVersion{}, false
+	}
+	v = strings.TrimPrefix(v, "v")
+	v, _, _ = strings.Cut(v, "+")
+
+	main := v
+	pre := ""
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		main = v[:i]
+		pre = v[i+1:]
+	}
+
+	parts := strings.Split(main, ".")
+	if len(parts) == 0 || len(parts) > 3 {
+		return parsedModuleVersion{}, false
+	}
+
+	var core [3]int64
+	for i := 0; i < len(parts); i++ {
+		if parts[i] == "" {
+			return parsedModuleVersion{}, false
+		}
+		n, err := strconv.ParseInt(parts[i], 10, 64)
+		if err != nil {
+			return parsedModuleVersion{}, false
+		}
+		core[i] = n
+	}
+	return parsedModuleVersion{core: core, pre: pre}, true
+}
+
+func comparePreRelease(a, b string) int {
+	ai := strings.Split(a, ".")
+	bi := strings.Split(b, ".")
+	n := len(ai)
+	if len(bi) < n {
+		n = len(bi)
+	}
+	for i := 0; i < n; i++ {
+		if ai[i] == bi[i] {
+			continue
+		}
+		an, aNum := parseNumericIdentifier(ai[i])
+		bn, bNum := parseNumericIdentifier(bi[i])
+		if aNum && bNum {
+			if an > bn {
+				return 1
+			}
+			return -1
+		}
+		if aNum {
+			return -1
+		}
+		if bNum {
+			return 1
+		}
+		if ai[i] > bi[i] {
+			return 1
+		}
+		return -1
+	}
+	if len(ai) == len(bi) {
+		return 0
+	}
+	if len(ai) > len(bi) {
+		return 1
+	}
+	return -1
+}
+
+func parseNumericIdentifier(s string) (int64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func (s *server) listCachedModules(query string) ([]cachedModule, error) {
