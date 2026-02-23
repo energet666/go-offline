@@ -39,6 +39,9 @@ type server struct {
 	jobsMu       sync.RWMutex
 	jobs         map[string]*jobState
 	jobSeq       uint64
+	proxyLogsMu  sync.Mutex
+	proxyLogs    []string
+	proxyLogSeq  uint64
 }
 
 type cachedModule struct {
@@ -143,6 +146,7 @@ func main() {
 	mux.HandleFunc("/api/prefetch", s.handlePrefetch)
 	mux.HandleFunc("/api/prefetch-gomod", s.handlePrefetchGoMod)
 	mux.HandleFunc("/api/jobs/", s.handleJobStatus)
+	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 
 	log.Printf("go-offline started on %s", *listen)
 	log.Printf("cache directory: %s", *cacheDir)
@@ -150,17 +154,45 @@ func main() {
 	log.Printf("job limits: max-bytes=%d max-modules=%d", *maxJobBytes, *maxModules)
 	log.Printf("go binary: %s", *goBin)
 	log.Printf("set GOPROXY=http://127.0.0.1%s", *listen)
-	if err := http.ListenAndServe(*listen, logRequests(mux)); err != nil {
+	if err := http.ListenAndServe(*listen, s.logRequests(mux)); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func logRequests(next http.Handler) http.Handler {
+func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		d := time.Since(start)
+		log.Printf("%s %s %d (%s)", r.Method, r.URL.Path, rec.status, d)
+		if isProxyRequestPath(r.URL.Path) {
+			s.appendProxyLog(fmt.Sprintf(
+				"%s #%d %s %d %s %s ua=%q",
+				time.Now().Format("15:04:05"),
+				atomic.AddUint64(&s.proxyLogSeq, 1),
+				r.Method,
+				rec.status,
+				d.Round(time.Millisecond),
+				r.URL.Path,
+				r.UserAgent(),
+			))
+		}
 	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func isProxyRequestPath(path string) bool {
+	return path != "/" && !strings.HasPrefix(path, "/api/")
 }
 
 func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +308,26 @@ func (s *server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, job.snapshot())
+}
+
+func (s *server) handleProxyRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	limit := 200
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+
+	lines := s.snapshotProxyLogs(limit)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lines": lines,
+		"count": len(lines),
+	})
 }
 
 func (s *server) prefetchModule(ctx context.Context, modPath, version string, recursive bool, seen map[string]struct{}, budget *fetchBudget, logf func(string, ...any)) (prefetchReport, error) {
@@ -726,6 +778,25 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 		return out[i].Module < out[j].Module
 	})
 	return out, nil
+}
+
+func (s *server) appendProxyLog(line string) {
+	s.proxyLogsMu.Lock()
+	s.proxyLogs = append(s.proxyLogs, line)
+	if len(s.proxyLogs) > 500 {
+		s.proxyLogs = s.proxyLogs[len(s.proxyLogs)-500:]
+	}
+	s.proxyLogsMu.Unlock()
+}
+
+func (s *server) snapshotProxyLogs(limit int) []string {
+	s.proxyLogsMu.Lock()
+	defer s.proxyLogsMu.Unlock()
+	if limit <= 0 || limit > len(s.proxyLogs) {
+		limit = len(s.proxyLogs)
+	}
+	start := len(s.proxyLogs) - limit
+	return append([]string(nil), s.proxyLogs[start:]...)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

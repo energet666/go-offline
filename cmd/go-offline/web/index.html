@@ -198,6 +198,16 @@ go env -w GOSUMDB=off</pre>
         <tbody></tbody>
       </table>
     </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Консоль прокси-запросов</h3>
+      <p>Показывает обращения Go к этому GOPROXY (метод, путь, статус, время, user-agent).</p>
+      <div class="actions">
+        <button id="proxyRefreshBtn" type="button">Обновить</button>
+        <button id="proxyClearBtn" type="button">Очистить экран</button>
+        <span id="proxyStatus" class="status"></span>
+      </div>
+      <div id="proxyLog" class="logbox">Ожидание запросов к прокси...</div>
+    </div>
   </div>
   <script>
     async function loadModules() {
@@ -224,6 +234,16 @@ go env -w GOSUMDB=off</pre>
     function renderLogs(logEl, lines) {
       if (!lines || !lines.length) {
         logEl.textContent = 'Пока без логов...';
+        return;
+      }
+      logEl.textContent = lines.join('\n');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function renderProxyLogs(lines) {
+      const logEl = document.getElementById('proxyLog');
+      if (!lines || !lines.length) {
+        logEl.textContent = 'Пока нет запросов к прокси.';
         return;
       }
       logEl.textContent = lines.join('\n');
@@ -295,7 +315,29 @@ go env -w GOSUMDB=off</pre>
       if (e.key === 'Enter') loadModules();
     };
 
+    let proxyLogInterval = null;
+
+    async function loadProxyLogs() {
+      const statusEl = document.getElementById('proxyStatus');
+      try {
+        const data = await fetchJSON('/api/proxy-requests?limit=250');
+        renderProxyLogs(data.lines || []);
+        statusEl.textContent = 'Записей: ' + (data.count || 0);
+      } catch (e) {
+        statusEl.textContent = 'Ошибка консоли: ' + e.message;
+      }
+    }
+
+    document.getElementById('proxyRefreshBtn').onclick = () => {
+      loadProxyLogs();
+    };
+    document.getElementById('proxyClearBtn').onclick = () => {
+      document.getElementById('proxyLog').textContent = 'Экран очищен. Новые запросы появятся автоматически.';
+    };
+
     loadModules();
+    loadProxyLogs();
+    proxyLogInterval = setInterval(loadProxyLogs, 1000);
   </script>
 </body>
 </html>
