@@ -240,14 +240,24 @@ go env -w GOSUMDB=off</pre>
       logEl.scrollTop = logEl.scrollHeight;
     }
 
+    function isNearBottom(el, thresholdPx = 16) {
+      return (el.scrollTop + el.clientHeight) >= (el.scrollHeight - thresholdPx);
+    }
+
     function renderProxyLogs(lines) {
       const logEl = document.getElementById('proxyLog');
+      const shouldAutoScroll = isNearBottom(logEl);
+      const prevScrollTop = logEl.scrollTop;
       if (!lines || !lines.length) {
         logEl.textContent = 'Пока нет запросов к прокси.';
         return;
       }
       logEl.textContent = lines.join('\n');
-      logEl.scrollTop = logEl.scrollHeight;
+      if (shouldAutoScroll) {
+        logEl.scrollTop = logEl.scrollHeight;
+      } else {
+        logEl.scrollTop = prevScrollTop;
+      }
     }
 
     async function watchJob(jobId, statusEl, logEl) {
