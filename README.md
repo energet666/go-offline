@@ -9,6 +9,7 @@ Prefetch выполняется через стандартный `go` CLI и л
 - Prefetch `module@version` (включая `latest`).
 - Для `go.mod`: прямые зависимости или рекурсивный `go mod download all`.
 - Веб-интерфейс для управления загрузками и просмотра кэша.
+- Поиск по кэшированным модулям (UI и API).
 
 ## Быстрый старт
 
@@ -38,6 +39,12 @@ go env -w GOSUMDB=off
 
 ```bash
 curl http://127.0.0.1:8080/api/modules
+```
+
+С поиском по `module`/`version`:
+
+```bash
+curl 'http://127.0.0.1:8080/api/modules?q=errors'
 ```
 
 ### Prefetch одного модуля

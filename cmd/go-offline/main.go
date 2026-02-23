@@ -190,6 +190,10 @@ const uiTemplate = `<!doctype html>
     <div class="card" style="margin-top:14px">
       <h3>Кэшированные модули</h3>
       <p><span class="chip">GOPROXY={{.ProxyURL}}</span></p>
+      <div class="actions" style="margin-bottom:8px">
+        <input id="modulesQuery" placeholder="Поиск по module/version" />
+        <button id="modulesSearchBtn" type="button">Найти</button>
+      </div>
       <table id="modulesTable">
         <thead><tr><th>Module</th><th>Version</th><th>Time</th></tr></thead>
         <tbody></tbody>
@@ -198,7 +202,9 @@ const uiTemplate = `<!doctype html>
   </div>
   <script>
     async function loadModules() {
-      const res = await fetch('/api/modules');
+      const q = document.getElementById('modulesQuery').value.trim();
+      const url = q ? ('/api/modules?q=' + encodeURIComponent(q)) : '/api/modules';
+      const res = await fetch(url);
       const rows = await res.json();
       const tbody = document.querySelector('#modulesTable tbody');
       tbody.innerHTML = '';
@@ -281,6 +287,13 @@ const uiTemplate = `<!doctype html>
         gomod: document.getElementById('gomod').value,
         recursive: document.getElementById('gomodRecursive').checked
       }, document.getElementById('gomodStatus'), document.getElementById('gomodLog'));
+    };
+
+    document.getElementById('modulesSearchBtn').onclick = () => {
+      loadModules();
+    };
+    document.getElementById('modulesQuery').onkeydown = (e) => {
+      if (e.key === 'Enter') loadModules();
     };
 
     loadModules();
@@ -447,7 +460,7 @@ func (s *server) handleModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.listCachedModules()
+	rows, err := s.listCachedModules(r.URL.Query().Get("q"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -917,9 +930,10 @@ func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (s *server) listCachedModules() ([]cachedModule, error) {
+func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 	base := s.proxyBaseDir()
 	out := make([]cachedModule, 0, 128)
+	query = strings.ToLower(strings.TrimSpace(query))
 
 	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -965,6 +979,13 @@ func (s *server) listCachedModules() ([]cachedModule, error) {
 		}
 		if !info.Time.IsZero() {
 			row.Time = info.Time.Format(time.RFC3339)
+		}
+		if query != "" {
+			moduleLC := strings.ToLower(row.Module)
+			versionLC := strings.ToLower(row.Version)
+			if !strings.Contains(moduleLC, query) && !strings.Contains(versionLC, query) {
+				return nil
+			}
 		}
 		out = append(out, row)
 		return nil
