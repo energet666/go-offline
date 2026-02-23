@@ -187,6 +187,16 @@ go env -w GOSUMDB=off</pre>
       </div>
     </div>
     <div class="card" style="margin-top:14px">
+      <h3>Консоль прокси-запросов</h3>
+      <p>Показывает обращения Go к этому GOPROXY (метод, путь, статус, время, user-agent).</p>
+      <div class="actions">
+        <button id="proxyRefreshBtn" type="button">Обновить</button>
+        <button id="proxyClearBtn" type="button">Очистить экран</button>
+        <span id="proxyStatus" class="status"></span>
+      </div>
+      <div id="proxyLog" class="logbox">Ожидание запросов к прокси...</div>
+    </div>
+    <div class="card" style="margin-top:14px">
       <h3>Кэшированные модули</h3>
       <p><span class="chip">GOPROXY={{.ProxyURL}}</span></p>
       <div class="actions" style="margin-bottom:8px">
@@ -197,16 +207,6 @@ go env -w GOSUMDB=off</pre>
         <thead><tr><th>Module</th><th>Version</th><th>Time</th></tr></thead>
         <tbody></tbody>
       </table>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <h3>Консоль прокси-запросов</h3>
-      <p>Показывает обращения Go к этому GOPROXY (метод, путь, статус, время, user-agent).</p>
-      <div class="actions">
-        <button id="proxyRefreshBtn" type="button">Обновить</button>
-        <button id="proxyClearBtn" type="button">Очистить экран</button>
-        <span id="proxyStatus" class="status"></span>
-      </div>
-      <div id="proxyLog" class="logbox">Ожидание запросов к прокси...</div>
     </div>
   </div>
   <script>
