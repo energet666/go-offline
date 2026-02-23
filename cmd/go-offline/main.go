@@ -146,12 +146,39 @@ const uiTemplate = `<!doctype html>
       font-size: 12px;
       white-space: pre-wrap;
     }
+    .mini-help {
+      margin: 12px 0 14px;
+      background: #f2f8ec;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .mini-help h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .mini-help pre {
+      margin: 8px 0 0;
+      background: #1d211a;
+      color: #d8f2d0;
+      border-radius: 8px;
+      padding: 10px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.45;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>go-offline</h1>
     <p>Локальный GOPROXY + prefetch зависимостей для офлайн-среды.</p>
+    <div class="mini-help">
+      <h3>Как подключить Go к этому прокси</h3>
+      <p>Выполните один раз:</p>
+      <pre>go env -w GOPROXY={{.ProxyURL}}
+go env -w GOSUMDB=off</pre>
+    </div>
     <div class="grid">
       <div class="card">
         <h3>Prefetch module@version</h3>
