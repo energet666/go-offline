@@ -66,6 +66,13 @@ type modReq struct {
 	Version string
 }
 
+type listedModule struct {
+	Path    string        `json:"Path"`
+	Version string        `json:"Version"`
+	Main    bool          `json:"Main"`
+	Replace *listedModule `json:"Replace,omitempty"`
+}
+
 type prefetchReport struct {
 	Downloaded []string `json:"downloaded"`
 	Skipped    []string `json:"skipped"`
@@ -552,13 +559,15 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 		return err
 	}
 	if recursive {
-		// go get adds module to go.mod; then download all pulls full module graph.
+		// go get adds module to go.mod; then mod download pulls required graph.
+		// Avoid `download all` because it may fail on broken transitive/test-only revisions.
 		if err := s.runGoCmd(ctx, workdir, logf, "get", target); err != nil {
 			return err
 		}
-		if err := s.runGoCmd(ctx, workdir, logf, "mod", "download", "all"); err != nil {
+		if err := s.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
 			return err
 		}
+		s.prefetchModuleGraphBestEffort(ctx, workdir, logf)
 	}
 	return nil
 }
@@ -574,7 +583,13 @@ func (s *server) prefetchGoModWithGo(ctx context.Context, goMod string, recursiv
 		return err
 	}
 	if recursive {
-		return s.runGoCmd(ctx, workdir, logf, "mod", "download", "all")
+		// Use `go mod download` instead of `download all` for better resilience when
+		// dependency graphs contain unreachable historical revisions.
+		if err := s.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
+			return err
+		}
+		s.prefetchModuleGraphBestEffort(ctx, workdir, logf)
+		return nil
 	}
 
 	reqs, err := parseGoModRequires(goMod)
@@ -591,6 +606,11 @@ func (s *server) prefetchGoModWithGo(ctx context.Context, goMod string, recursiv
 }
 
 func (s *server) runGoCmd(ctx context.Context, workdir string, logf func(string, ...any), args ...string) error {
+	_, err := s.runGoCmdOutput(ctx, workdir, logf, args...)
+	return err
+}
+
+func (s *server) runGoCmdOutput(ctx context.Context, workdir string, logf func(string, ...any), args ...string) ([]byte, error) {
 	logf("$ %s %s", s.goBin, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, s.goBin, args...)
 	cmd.Dir = workdir
@@ -604,9 +624,53 @@ func (s *server) runGoCmd(ctx context.Context, workdir string, logf func(string,
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("command failed: %s %s: %w", s.goBin, strings.Join(args, " "), err)
+		return out, fmt.Errorf("command failed: %s %s: %w", s.goBin, strings.Join(args, " "), err)
 	}
-	return nil
+	return out, nil
+}
+
+func (s *server) prefetchModuleGraphBestEffort(ctx context.Context, workdir string, logf func(string, ...any)) {
+	out, err := s.runGoCmdOutput(ctx, workdir, logf, "list", "-m", "-json", "all")
+	if err != nil {
+		logf("warn: unable to enumerate module graph: %v", err)
+		return
+	}
+
+	dec := json.NewDecoder(strings.NewReader(string(out)))
+	seen := make(map[string]struct{})
+	attempted := 0
+	failed := 0
+	for {
+		var m listedModule
+		if err := dec.Decode(&m); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			logf("warn: unable to parse module graph: %v", err)
+			return
+		}
+
+		resolved := &m
+		if m.Replace != nil {
+			resolved = m.Replace
+		}
+		if resolved.Main || resolved.Version == "" {
+			continue
+		}
+		target := resolved.Path + "@" + resolved.Version
+		if _, ok := seen[target]; ok {
+			continue
+		}
+		seen[target] = struct{}{}
+		attempted++
+		if err := s.runGoCmd(ctx, workdir, logf, "mod", "download", target); err != nil {
+			failed++
+			logf("warn: skip %s: %v", target, err)
+		}
+	}
+	if attempted > 0 {
+		logf("graph prefetch completed: attempted=%d failed=%d", attempted, failed)
+	}
 }
 
 func (s *server) goEnv() []string {
