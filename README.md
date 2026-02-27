@@ -23,8 +23,7 @@ go build -o go-offline ./cmd/go-offline
 Для Go-клиента:
 
 ```bash
-go env -w GOPROXY=http://127.0.0.1:8080
-go env -w GOSUMDB=off
+go env -w GOPROXY=http://127.0.0.1:8080 GOSUMDB=off
 ```
 
 ## Как использовать для работы без интернета

@@ -130,14 +130,35 @@
       font-size: 16px;
     }
     .mini-help pre {
-      margin: 8px 0 0;
+      margin: 0;
       background: #1d211a;
       color: #d8f2d0;
       border-radius: 8px;
-      padding: 10px;
+      padding: 10px 100px 10px 10px;
       overflow: auto;
       font-size: 12px;
       line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .code-block {
+      position: relative;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #d8f2d0;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: normal;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
     }
   </style>
 </head>
@@ -147,9 +168,16 @@
     <p>Локальный GOPROXY + prefetch зависимостей для офлайн-среды.</p>
     <div class="mini-help">
       <h3>Как подключить Go к этому прокси</h3>
-      <p>Выполните один раз:</p>
-      <pre>go env -w GOPROXY={{.ProxyURL}}
-go env -w GOSUMDB=off</pre>
+      <p>Установить переменные:</p>
+      <div class="code-block" style="margin-bottom: 12px;">
+        <pre id="cmd-set">go env -w GOPROXY={{.ProxyURL}} GOSUMDB=off</pre>
+        <button class="copy-btn" onclick="copyText(this, 'cmd-set')">Копировать</button>
+      </div>
+      <p>Вернуть по умолчанию (отключить прокси):</p>
+      <div class="code-block">
+        <pre id="cmd-unset">go env -u GOPROXY GOSUMDB</pre>
+        <button class="copy-btn" onclick="copyText(this, 'cmd-unset')">Копировать</button>
+      </div>
     </div>
     <div class="grid">
       <div class="card">
@@ -210,6 +238,18 @@ go env -w GOSUMDB=off</pre>
     </div>
   </div>
   <script>
+    async function copyText(btn, elementId) {
+      const text = document.getElementById(elementId).textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        const oldText = btn.textContent;
+        btn.textContent = 'Скопировано';
+        setTimeout(() => { btn.textContent = oldText; }, 2000);
+      } catch (err) {
+        console.error('Copy failed', err);
+      }
+    }
+
     async function loadModules() {
       const q = document.getElementById('modulesQuery').value.trim();
       const url = q ? ('/api/modules?q=' + encodeURIComponent(q)) : '/api/modules';
