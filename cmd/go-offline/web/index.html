@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ru">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,31 +14,37 @@
       --accent: #2f6a3f;
       --muted: #63705f;
     }
+
     body {
       margin: 0;
       font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       color: var(--ink);
       background: radial-gradient(circle at top, #e8f1dc, var(--bg));
     }
+
     .wrap {
       max-width: 1080px;
       margin: 28px auto;
       padding: 0 16px;
     }
+
     h1 {
       margin: 0 0 8px;
       font-size: 34px;
       letter-spacing: -0.02em;
     }
+
     p {
       color: var(--muted);
       margin: 0 0 14px;
     }
+
     .grid {
       display: grid;
       gap: 14px;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     }
+
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -45,13 +52,16 @@
       padding: 14px;
       box-shadow: 0 6px 18px rgba(60, 75, 56, 0.08);
     }
+
     label {
       display: block;
       margin-top: 8px;
       font-size: 14px;
       color: var(--muted);
     }
-    input, textarea {
+
+    input,
+    textarea {
       width: 100%;
       box-sizing: border-box;
       margin-top: 4px;
@@ -62,16 +72,32 @@
       font-family: inherit;
       background: #fff;
     }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: auto;
+      margin-top: 0;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
     textarea {
       min-height: 160px;
       font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
     }
+
     .actions {
       margin-top: 12px;
       display: flex;
       gap: 8px;
       align-items: center;
     }
+
     button {
       border: 0;
       border-radius: 8px;
@@ -81,22 +107,27 @@
       background: var(--accent);
       cursor: pointer;
     }
+
     .status {
       color: var(--muted);
       font-size: 14px;
     }
+
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 14px;
     }
-    th, td {
+
+    th,
+    td {
       text-align: left;
       border-bottom: 1px solid var(--line);
       padding: 8px 4px;
       vertical-align: top;
       word-break: break-word;
     }
+
     .chip {
       display: inline-block;
       font-size: 12px;
@@ -105,6 +136,7 @@
       border-radius: 999px;
       padding: 3px 8px;
     }
+
     .logbox {
       margin-top: 10px;
       background: #1d211a;
@@ -118,6 +150,7 @@
       font-size: 12px;
       white-space: pre-wrap;
     }
+
     .mini-help {
       margin: 12px 0 14px;
       background: #f2f8ec;
@@ -125,10 +158,12 @@
       border-radius: 10px;
       padding: 10px 12px;
     }
+
     .mini-help h3 {
       margin: 0 0 8px;
       font-size: 16px;
     }
+
     .mini-help pre {
       margin: 0;
       background: #1d211a;
@@ -140,9 +175,11 @@
       line-height: 1.45;
       white-space: pre-wrap;
     }
+
     .code-block {
       position: relative;
     }
+
     .copy-btn {
       position: absolute;
       top: 6px;
@@ -157,11 +194,13 @@
       cursor: pointer;
       transition: all 0.2s;
     }
+
     .copy-btn:hover {
       background: rgba(255, 255, 255, 0.2);
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <h1>go-offline</h1>
@@ -188,7 +227,7 @@
         <label>Version (optional)
           <input id="version" placeholder="v0.9.1 или пусто (= latest)" />
         </label>
-        <label>
+        <label class="checkbox-label">
           <input id="recursive" type="checkbox" checked />
           Скачать рекурсивно зависимости из go.mod
         </label>
@@ -201,9 +240,10 @@
       <div class="card">
         <h3>Prefetch из go.mod</h3>
         <label>Вставьте содержимое go.mod
-          <textarea id="gomod" placeholder="module your/module&#10;go 1.22&#10;require github.com/pkg/errors v0.9.1"></textarea>
+          <textarea id="gomod"
+            placeholder="module your/module&#10;go 1.22&#10;require github.com/pkg/errors v0.9.1"></textarea>
         </label>
-        <label>
+        <label class="checkbox-label">
           <input id="gomodRecursive" type="checkbox" />
           Рекурсивно обходить зависимости из зависимостей (может быть долго)
         </label>
@@ -229,10 +269,16 @@
       <p><span class="chip">GOPROXY={{.ProxyURL}}</span></p>
       <div class="actions" style="margin-bottom:8px">
         <input id="modulesQuery" placeholder="Поиск по module/version" />
-        <button id="modulesSearchBtn" type="button">Найти</button>
+        <button id="modulesClearBtn" type="button">Очистить</button>
       </div>
       <table id="modulesTable">
-        <thead><tr><th>Module</th><th>Version</th><th>Time</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th>Version</th>
+            <th>Time</th>
+          </tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
@@ -333,7 +379,7 @@
       try {
         const data = await fetchJSON(url, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
         statusEl.textContent = '[queued] Задача #' + data.job_id;
@@ -358,11 +404,12 @@
       }, document.getElementById('gomodStatus'), document.getElementById('gomodLog'));
     };
 
-    document.getElementById('modulesSearchBtn').onclick = () => {
+    document.getElementById('modulesClearBtn').onclick = () => {
+      document.getElementById('modulesQuery').value = '';
       loadModules();
     };
-    document.getElementById('modulesQuery').onkeydown = (e) => {
-      if (e.key === 'Enter') loadModules();
+    document.getElementById('modulesQuery').oninput = () => {
+      loadModules();
     };
 
     let proxyLogInterval = null;
@@ -390,4 +437,5 @@
     proxyLogInterval = setInterval(loadProxyLogs, 1000);
   </script>
 </body>
+
 </html>
