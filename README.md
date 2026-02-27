@@ -68,6 +68,14 @@ curl -X POST http://127.0.0.1:8080/api/prefetch-gomod \
   -d '{"gomod":"module demo\n\ngo 1.22\n\nrequire github.com/pkg/errors v0.9.1\n","recursive":false}'
 ```
 
+### Логи прокси-запросов
+
+Возвращает список последних запросов к локальному GOPROXY серверу. Можно передать параметр `limit` (по умолчанию 200, максимум 1000).
+
+```bash
+curl http://127.0.0.1:8080/api/proxy-requests?limit=100
+```
+
 ## Флаги
 
 - `-listen` адрес HTTP-сервера (по умолчанию `:8080`)
