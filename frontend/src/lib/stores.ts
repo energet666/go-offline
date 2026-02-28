@@ -14,7 +14,14 @@ export function showToastMessage(msg: string) {
 }
 
 // Module cache state
-export const modulesStore = writable<any[]>([]);
+export interface CachedModule {
+    module: string;
+    version: string;
+    time?: string;
+    pinned?: boolean;
+}
+
+export const modulesStore = writable<CachedModule[]>([]);
 export const modulesQueryStore = writable("");
 
 export async function loadModules(query?: string) {
@@ -25,5 +32,19 @@ export async function loadModules(query?: string) {
         modulesStore.set(data);
     } catch (err) {
         console.error("Failed to load modules", err);
+    }
+}
+
+export async function unpinModule(module: string, version: string) {
+    try {
+        await fetchJSON("/api/pinned", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ module, version }),
+        });
+        await loadModules();
+    } catch (err) {
+        console.error("Failed to unpin module", err);
+        throw err;
     }
 }
