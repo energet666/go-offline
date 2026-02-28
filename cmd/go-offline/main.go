@@ -42,12 +42,22 @@ type server struct {
 	proxyLogsMu  sync.Mutex
 	proxyLogs    []string
 	proxyLogSeq  uint64
+	pinnedMu     sync.RWMutex
+	pinnedPkgs   map[string]pinnedEntry // key: "module@version"
+}
+
+// pinnedEntry represents a package explicitly requested by the user.
+type pinnedEntry struct {
+	Module   string `json:"module"`
+	Version  string `json:"version"`
+	PinnedAt string `json:"pinned_at"`
 }
 
 type cachedModule struct {
 	Module  string `json:"module"`
 	Version string `json:"version"`
 	Time    string `json:"time,omitempty"`
+	Pinned  bool   `json:"pinned,omitempty"`
 }
 
 type prefetchRequest struct {
@@ -147,6 +157,11 @@ func main() {
 		jobs:         make(map[string]*jobState),
 	}
 
+	// Load pinned packages from disk.
+	if err := s.loadPinnedPackages(); err != nil {
+		log.Printf("warn: load pinned packages: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/api/modules", s.handleModules)
@@ -154,6 +169,7 @@ func main() {
 	mux.HandleFunc("/api/prefetch-gomod", s.handlePrefetchGoMod)
 	mux.HandleFunc("/api/jobs/", s.handleJobStatus)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
+	mux.HandleFunc("/api/pinned", s.handlePinned)
 
 	log.Printf("go-offline started on %s", *listen)
 	log.Printf("cache directory: %s", *cacheDir)
@@ -210,6 +226,14 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.tmpl.Execute(w, data)
 		return
+	case strings.HasPrefix(r.URL.Path, "/assets/"):
+		fsys, err := fs.Sub(uiTemplateFS, "web/assets")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.StripPrefix("/assets/", http.FileServer(http.FS(fsys))).ServeHTTP(w, r)
+		return
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		http.NotFound(w, r)
 		return
@@ -249,8 +273,26 @@ func (s *server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve package path -> module path before pinning or starting the job.
+	// Use a short timeout so we don't block the HTTP response too long.
+	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	resolvedModule, resolveErr := s.resolveModulePath(resolveCtx, req.Module, req.Version)
+	resolveCancel()
+	if resolveErr != nil {
+		log.Printf("warn: resolve module path %s: %v", req.Module, resolveErr)
+	} else if resolvedModule != req.Module {
+		log.Printf("info: resolved package path %s -> module %s", req.Module, resolvedModule)
+		req.Module = resolvedModule
+	}
+
 	job := s.newJob("prefetch-module")
 	job.logf("start module=%s version=%s recursive=%t", req.Module, valueOr(req.Version, "latest"), req.Recursive)
+
+	// Record user-requested package before starting the job.
+	if err := s.pinPackage(req.Module, req.Version); err != nil {
+		log.Printf("warn: pin package: %v", err)
+	}
+
 	go func() {
 		err := s.prefetchModuleWithGo(context.Background(), req.Module, req.Version, req.Recursive, job.logf)
 		if err != nil {
@@ -286,6 +328,14 @@ func (s *server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 
 	job := s.newJob("prefetch-gomod")
 	job.logf("start requires=%d recursive=%t", len(requires), req.Recursive)
+
+	// Pin all packages from go.mod as user-requested.
+	for _, r := range requires {
+		if err := s.pinPackage(r.Path, r.Version); err != nil {
+			log.Printf("warn: pin package %s@%s: %v", r.Path, r.Version, err)
+		}
+	}
+
 	go func() {
 		err := s.prefetchGoModWithGo(context.Background(), req.GoMod, req.Recursive, job.logf)
 		if err != nil {
@@ -549,6 +599,18 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 	}
 	defer os.RemoveAll(workdir)
 
+	// The user may have entered a package path (e.g. golang.org/x/net/websocket)
+	// instead of a module path (e.g. golang.org/x/net). Resolve to the actual
+	// module path by probing the upstream proxy.
+	resolvedModule, err := s.resolveModulePath(ctx, modPath, version)
+	if err != nil {
+		return fmt.Errorf("resolve module path for %q: %w", modPath, err)
+	}
+	if resolvedModule != modPath {
+		logf("resolved package path %s -> module %s", modPath, resolvedModule)
+		modPath = resolvedModule
+	}
+
 	target := modPath + "@" + valueOr(version, "latest")
 	logf("go prefetch target %s", target)
 
@@ -558,6 +620,16 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 	if err := s.runGoCmd(ctx, workdir, logf, "mod", "download", target); err != nil {
 		return err
 	}
+
+	// If the user requested "latest" (no explicit version), resolve the real version
+	// from the downloaded .info file and update the pinned entry accordingly.
+	if strings.TrimSpace(version) == "" {
+		if resolved, err := s.resolveVersionFromCache(modPath); err == nil && resolved != "" {
+			logf("resolved pinned version %s -> %s", modPath, resolved)
+			s.resolvePinnedLatest(modPath, resolved)
+		}
+	}
+
 	if recursive {
 		// go get adds module to go.mod; then mod download pulls required graph.
 		// Avoid `download all` because it may fail on broken transitive/test-only revisions.
@@ -570,6 +642,82 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 		s.prefetchModuleGraphBestEffort(ctx, workdir, logf)
 	}
 	return nil
+}
+
+// resolveModulePath resolves a package path to the root module path by probing
+// the upstream GOPROXY. It tries successively shorter path prefixes (from
+// longest to shortest) until it finds one that the proxy recognises as a valid
+// module. If the path itself is already a valid module path it is returned
+// unchanged.
+func (s *server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
+	parts := strings.Split(pkgPath, "/")
+	// Try from longest to shortest prefix.
+	// We start at the full path and walk up to the root.
+	for i := len(parts); i >= 1; i-- {
+		candidate := strings.Join(parts[:i], "/")
+		escapedPath, err := escapeModulePath(candidate)
+		if err != nil {
+			continue
+		}
+		var probeURL string
+		if version != "" && version != "latest" {
+			// Probe a specific version via /@v/<version>.info
+			escapedVer, err := escapeModuleVersion(version)
+			if err != nil {
+				continue
+			}
+			probeURL = s.upstream + "/" + escapedPath + "/@v/" + escapedVer + ".info"
+		} else {
+			// Probe the latest endpoint
+			probeURL = s.upstream + "/" + escapedPath + "/@latest"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return candidate, nil
+		}
+	}
+	// Fallback: return the original path; go mod download will produce a clear error.
+	return pkgPath, nil
+}
+
+// resolveVersionFromCache finds the latest cached version of modPath by scanning
+// the proxy cache directory for .info files.
+func (s *server) resolveVersionFromCache(modPath string) (string, error) {
+	escapedPath, err := escapeModulePath(modPath)
+	if err != nil {
+		return "", err
+	}
+	versionDir := filepath.Join(s.proxyBaseDir(), filepath.FromSlash(escapedPath), "@v")
+	entries, err := os.ReadDir(versionDir)
+	if err != nil {
+		return "", err
+	}
+	var best string
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
+			continue
+		}
+		escapedVer := strings.TrimSuffix(ent.Name(), ".info")
+		ver, err := unescapeModuleVersion(escapedVer)
+		if err != nil {
+			ver = escapedVer
+		}
+		if best == "" || compareModuleVersions(ver, best) > 0 {
+			best = ver
+		}
+	}
+	if best == "" {
+		return "", errors.New("no cached versions found")
+	}
+	return best, nil
 }
 
 func (s *server) prefetchGoModWithGo(ctx context.Context, goMod string, recursive bool, logf func(string, ...any)) error {
@@ -993,6 +1141,7 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 		row := cachedModule{
 			Module:  modPath,
 			Version: ver,
+			Pinned:  s.isPinned(modPath, ver),
 		}
 		if !info.Time.IsZero() {
 			row.Time = info.Time.Format(time.RFC3339)
@@ -1012,12 +1161,168 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
+		// Pinned packages first, then alphabetical.
+		if out[i].Pinned != out[j].Pinned {
+			return out[i].Pinned
+		}
 		if out[i].Module == out[j].Module {
 			return out[i].Version < out[j].Version
 		}
 		return out[i].Module < out[j].Module
 	})
 	return out, nil
+}
+
+// pinnedFilePath returns the path to the pinned packages JSON file.
+func (s *server) pinnedFilePath() string {
+	return filepath.Join(s.cacheDir, "user-packages.json")
+}
+
+// loadPinnedPackages reads pinned packages from disk into memory.
+func (s *server) loadPinnedPackages() error {
+	data, err := os.ReadFile(s.pinnedFilePath())
+	if os.IsNotExist(err) {
+		s.pinnedMu.Lock()
+		s.pinnedPkgs = make(map[string]pinnedEntry)
+		s.pinnedMu.Unlock()
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var entries []pinnedEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	m := make(map[string]pinnedEntry, len(entries))
+	for _, e := range entries {
+		m[e.Module+"@"+e.Version] = e
+	}
+	s.pinnedMu.Lock()
+	s.pinnedPkgs = m
+	s.pinnedMu.Unlock()
+	return nil
+}
+
+// savePinnedPackagesLocked writes pinned packages to disk. Must be called with pinnedMu write-locked.
+func (s *server) savePinnedPackagesLocked() error {
+	entries := make([]pinnedEntry, 0, len(s.pinnedPkgs))
+	for _, e := range s.pinnedPkgs {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		ki := entries[i].Module + "@" + entries[i].Version
+		kj := entries[j].Module + "@" + entries[j].Version
+		return ki < kj
+	})
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.pinnedFilePath(), data, 0o644)
+}
+
+// pinPackage records a user-requested package. If the version is empty or
+// "latest", it is stored as-is and updated on first resolution.
+func (s *server) pinPackage(module, version string) error {
+	key := module + "@" + valueOr(version, "latest")
+	s.pinnedMu.Lock()
+	defer s.pinnedMu.Unlock()
+	if s.pinnedPkgs == nil {
+		s.pinnedPkgs = make(map[string]pinnedEntry)
+	}
+	if _, ok := s.pinnedPkgs[key]; ok {
+		return nil // already recorded
+	}
+	s.pinnedPkgs[key] = pinnedEntry{
+		Module:   module,
+		Version:  valueOr(version, "latest"),
+		PinnedAt: time.Now().Format(time.RFC3339),
+	}
+	return s.savePinnedPackagesLocked()
+}
+
+// unpinPackage removes a package from the pinned list.
+func (s *server) unpinPackage(module, version string) error {
+	key := module + "@" + version
+	s.pinnedMu.Lock()
+	defer s.pinnedMu.Unlock()
+	if _, ok := s.pinnedPkgs[key]; !ok {
+		return nil
+	}
+	delete(s.pinnedPkgs, key)
+	return s.savePinnedPackagesLocked()
+}
+
+// isPinned reports whether a module@version is in the pinned set.
+// It also matches entries recorded as "latest" (before the real version was resolved).
+func (s *server) isPinned(module, version string) bool {
+	s.pinnedMu.RLock()
+	defer s.pinnedMu.RUnlock()
+	if _, ok := s.pinnedPkgs[module+"@"+version]; ok {
+		return true
+	}
+	// Fallback: the user may have requested this module without a version,
+	// so it was recorded as "latest" before the real version was resolved.
+	_, ok := s.pinnedPkgs[module+"@latest"]
+	return ok
+}
+
+// resolvePinnedLatest updates the "latest" pinned entry for module to the
+// resolved concrete version. Safe to call from goroutines.
+func (s *server) resolvePinnedLatest(module, resolvedVersion string) {
+	latestKey := module + "@latest"
+	s.pinnedMu.Lock()
+	defer s.pinnedMu.Unlock()
+	entry, ok := s.pinnedPkgs[latestKey]
+	if !ok {
+		return
+	}
+	// Replace placeholder "latest" with the real version.
+	delete(s.pinnedPkgs, latestKey)
+	newKey := module + "@" + resolvedVersion
+	if _, exists := s.pinnedPkgs[newKey]; !exists {
+		entry.Version = resolvedVersion
+		s.pinnedPkgs[newKey] = entry
+	}
+	_ = s.savePinnedPackagesLocked()
+}
+
+// handlePinned handles GET/DELETE /api/pinned
+func (s *server) handlePinned(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.pinnedMu.RLock()
+		entries := make([]pinnedEntry, 0, len(s.pinnedPkgs))
+		for _, e := range s.pinnedPkgs {
+			entries = append(entries, e)
+		}
+		s.pinnedMu.RUnlock()
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Module+"@"+entries[i].Version < entries[j].Module+"@"+entries[j].Version
+		})
+		writeJSON(w, http.StatusOK, entries)
+	case http.MethodDelete:
+		var req struct {
+			Module  string `json:"module"`
+			Version string `json:"version"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if req.Module == "" || req.Version == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "module and version required"})
+			return
+		}
+		if err := s.unpinPackage(req.Module, req.Version); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
 }
 
 func (s *server) appendProxyLog(line string) {
@@ -1145,10 +1450,10 @@ func (j *jobState) fail(err error) {
 	j.Logs = append(j.Logs, time.Now().Format("15:04:05")+" job error: "+err.Error())
 }
 
-func (j *jobState) snapshot() jobState {
+func (j *jobState) snapshot() *jobState {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	cp := jobState{
+	cp := &jobState{
 		ID:         j.ID,
 		Kind:       j.Kind,
 		State:      j.State,
