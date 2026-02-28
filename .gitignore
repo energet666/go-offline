@@ -3,5 +3,4 @@ cache/
 workdir/
 go-offline
 .gocache
-cmd/go-offline/web/
 bin/
