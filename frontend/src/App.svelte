@@ -145,7 +145,7 @@
   });
 </script>
 
-<div class="max-w-6xl mx-auto my-8 px-4 text-slate-800">
+<div class="max-w-6xl mx-auto py-8 px-4 text-slate-800">
   <h1 class="text-4xl font-bold mb-2 text-slate-900 tracking-tight">
     go-offline
   </h1>
@@ -154,7 +154,7 @@
   </p>
 
   <div class="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6">
-    <h3 class="font-semibold text-lg mb-2 text-primary-content/80">
+    <h3 class="font-semibold text-lg mb-2 text-primary">
       Как подключить Go к этому прокси
     </h3>
     <p class="text-sm mb-2">Установить переменные:</p>
