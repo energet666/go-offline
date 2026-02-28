@@ -116,18 +116,8 @@
                                     ? 'bg-success/20!'
                                     : ''}"
                             >
-                                <td class="break-all font-medium opacity-90"
-                                    >{row.module}</td
-                                >
-                                <td
-                                    ><div
-                                        class="badge badge-primary badge-sm border-primary/20"
-                                    >
-                                        {row.version}
-                                    </div></td
-                                >
-                                <td class="text-xs opacity-60">
-                                    {row.time || ""}
+                                <td class="break-all font-medium opacity-90">
+                                    {row.module}
                                     {#if row.exported}
                                         <span
                                             class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
@@ -136,6 +126,16 @@
                                             <Archive size={13} />
                                         </span>
                                     {/if}
+                                </td>
+                                <td>
+                                    <div
+                                        class="badge badge-primary badge-sm border-primary/20"
+                                    >
+                                        {row.version}
+                                    </div>
+                                </td>
+                                <td class="text-xs opacity-60">
+                                    {row.time || ""}
                                 </td>
                                 <td>
                                     <div class="flex gap-1 justify-end">
@@ -225,18 +225,8 @@
                                     ? 'bg-success/20!'
                                     : ''}"
                             >
-                                <td class="break-all font-medium opacity-90"
-                                    >{row.module}</td
-                                >
-                                <td
-                                    ><div
-                                        class="badge badge-ghost badge-sm border-base-content/10"
-                                    >
-                                        {row.version}
-                                    </div></td
-                                >
-                                <td class="text-xs opacity-60">
-                                    {row.time || ""}
+                                <td class="break-all font-medium opacity-90">
+                                    {row.module}
                                     {#if row.exported}
                                         <span
                                             class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
@@ -245,6 +235,16 @@
                                             <Archive size={13} />
                                         </span>
                                     {/if}
+                                </td>
+                                <td>
+                                    <div
+                                        class="badge badge-ghost badge-sm border-base-content/10"
+                                    >
+                                        {row.version}
+                                    </div>
+                                </td>
+                                <td class="text-xs opacity-60">
+                                    {row.time || ""}
                                 </td>
                                 <td>
                                     <button
