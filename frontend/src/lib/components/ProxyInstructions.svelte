@@ -14,7 +14,7 @@
         <pre
             class="bg-neutral text-success p-3 pl-4 rounded-xl text-sm overflow-x-auto font-mono shadow-inner border border-neutral-focus">go env -w GOPROXY={proxyUrl} GOSUMDB=off</pre>
         <button
-            class="absolute top-2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
+            class="absolute top-1/2 -translate-y-1/2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
             onclick={(e) =>
                 copyText(`go env -w GOPROXY=${proxyUrl} GOSUMDB=off`, e)}
             >Копировать</button
@@ -27,7 +27,7 @@
         <pre
             class="bg-neutral text-success p-3 pl-4 rounded-xl text-sm overflow-x-auto font-mono shadow-inner border border-neutral-focus">go env -u GOPROXY GOSUMDB</pre>
         <button
-            class="absolute top-2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
+            class="absolute top-1/2 -translate-y-1/2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
             onclick={(e) => copyText("go env -u GOPROXY GOSUMDB", e)}
             >Копировать</button
         >
