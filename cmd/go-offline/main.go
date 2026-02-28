@@ -30,6 +30,7 @@ import (
 
 type server struct {
 	cacheDir     string
+	workDir      string
 	upstream     string
 	httpClient   *http.Client
 	fetchRetries int
@@ -115,7 +116,8 @@ type jobState struct {
 func main() {
 	var (
 		listen       = flag.String("listen", ":8080", "HTTP listen address")
-		cacheDir     = flag.String("cache", "./cache", "cache directory")
+		cacheDir     = flag.String("cache", "./cache", "cache directory (persistent, for export/import)")
+		workDir      = flag.String("workdir", "./workdir", "working directory (ephemeral: gocache, proxy, tmp)")
 		upstream     = flag.String("upstream", "https://proxy.golang.org", "upstream GOPROXY")
 		httpTimeout  = flag.Duration("http-timeout", 5*time.Minute, "HTTP timeout for upstream requests")
 		fetchRetries = flag.Int("fetch-retries", 3, "retries for timeout/429/5xx upstream errors")
@@ -131,21 +133,31 @@ func main() {
 	}
 	*cacheDir = absCacheDir
 
-	if err := os.MkdirAll(filepath.Join(*cacheDir, "proxy"), 0o755); err != nil {
-		log.Fatalf("create cache dir: %v", err)
+	absWorkDir, err := filepath.Abs(*workDir)
+	if err != nil {
+		log.Fatalf("resolve workdir: %v", err)
 	}
+	*workDir = absWorkDir
+
+	// Persistent cache directories.
 	if err := os.MkdirAll(filepath.Join(*cacheDir, "gomodcache", "cache", "download"), 0o755); err != nil {
 		log.Fatalf("create gomodcache dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(*cacheDir, "gocache"), 0o755); err != nil {
+
+	// Ephemeral working directories.
+	if err := os.MkdirAll(filepath.Join(*workDir, "proxy"), 0o755); err != nil {
+		log.Fatalf("create proxy dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(*workDir, "gocache"), 0o755); err != nil {
 		log.Fatalf("create gocache dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(*cacheDir, "tmp"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(*workDir, "tmp"), 0o755); err != nil {
 		log.Fatalf("create tmp dir: %v", err)
 	}
 
 	s := &server{
 		cacheDir: *cacheDir,
+		workDir:  *workDir,
 		upstream: strings.TrimRight(*upstream, "/"),
 		httpClient: &http.Client{
 			Timeout: *httpTimeout,
@@ -173,9 +185,11 @@ func main() {
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
 	mux.HandleFunc("/api/export-cache", s.handleExportCache)
+	mux.HandleFunc("/api/import-cache", s.handleImportCache)
 
 	log.Printf("go-offline started on %s", *listen)
 	log.Printf("cache directory: %s", *cacheDir)
+	log.Printf("work directory: %s", *workDir)
 	log.Printf("upstream timeout: %s retries: %d", (*httpTimeout).String(), *fetchRetries)
 	log.Printf("job limits: max-bytes=%d max-modules=%d", *maxJobBytes, *maxModules)
 	log.Printf("go binary: %s", *goBin)
@@ -501,7 +515,7 @@ func (s *server) downloadModule(ctx context.Context, modPath, version string, lo
 		return false, nil, 0, err
 	}
 
-	dir := filepath.Join(s.cacheDir, "proxy", filepath.FromSlash(escapedPath), "@v")
+	dir := filepath.Join(s.workDir, "proxy", filepath.FromSlash(escapedPath), "@v")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, nil, 0, err
 	}
@@ -596,7 +610,7 @@ func (s *server) fetchRemote(ctx context.Context, rawURL string, logf func(strin
 }
 
 func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version string, recursive bool, logf func(string, ...any)) error {
-	workdir, err := os.MkdirTemp(filepath.Join(s.cacheDir, "tmp"), "prefetch-module-*")
+	workdir, err := os.MkdirTemp(filepath.Join(s.workDir, "tmp"), "prefetch-module-*")
 	if err != nil {
 		return err
 	}
@@ -724,7 +738,7 @@ func (s *server) resolveVersionFromCache(modPath string) (string, error) {
 }
 
 func (s *server) prefetchGoModWithGo(ctx context.Context, goMod string, recursive bool, logf func(string, ...any)) error {
-	workdir, err := os.MkdirTemp(filepath.Join(s.cacheDir, "tmp"), "prefetch-gomod-*")
+	workdir, err := os.MkdirTemp(filepath.Join(s.workDir, "tmp"), "prefetch-gomod-*")
 	if err != nil {
 		return err
 	}
@@ -827,7 +841,7 @@ func (s *server) prefetchModuleGraphBestEffort(ctx context.Context, workdir stri
 func (s *server) goEnv() []string {
 	env := os.Environ()
 	env = append(env, "GOMODCACHE="+filepath.Join(s.cacheDir, "gomodcache"))
-	env = append(env, "GOCACHE="+filepath.Join(s.cacheDir, "gocache"))
+	env = append(env, "GOCACHE="+filepath.Join(s.workDir, "gocache"))
 	env = append(env, "GONOSUMDB=*")
 	return env
 }
@@ -866,7 +880,7 @@ func (s *server) proxyBaseDir() string {
 	if st, err := os.Stat(newBase); err == nil && st.IsDir() {
 		return newBase
 	}
-	return filepath.Join(s.cacheDir, "proxy")
+	return filepath.Join(s.workDir, "proxy")
 }
 
 func (s *server) updateVersionList(versionDir, version string) error {
@@ -920,7 +934,7 @@ func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, target)
 		return
 	}
-	legacyTarget := filepath.Join(s.cacheDir, "proxy", filepath.FromSlash(rel))
+	legacyTarget := filepath.Join(s.workDir, "proxy", filepath.FromSlash(rel))
 	if st, err := os.Stat(legacyTarget); err == nil && !st.IsDir() {
 		http.ServeFile(w, r, legacyTarget)
 		return
@@ -935,7 +949,7 @@ func (s *server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 		body    []byte
 	}
 
-	baseDirs := []string{s.proxyBaseDir(), filepath.Join(s.cacheDir, "proxy")}
+	baseDirs := []string{s.proxyBaseDir(), filepath.Join(s.workDir, "proxy")}
 	var best *latestCandidate
 
 	for _, base := range baseDirs {
@@ -1358,14 +1372,6 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 		// Use forward slashes inside the tar.
 		relPath = filepath.ToSlash(relPath)
 
-		// Skip the tmp directory – it contains ephemeral data.
-		if relPath == "tmp" || strings.HasPrefix(relPath, "tmp/") {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
 		header, hErr := tar.FileInfoHeader(info, "")
 		if hErr != nil {
 			return hErr
@@ -1390,6 +1396,98 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("error: export cache archive: %v", err)
 	}
+}
+
+func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Limit upload size to 4 GB.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
+
+	file, _, err := r.FormFile("archive")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing or invalid archive file: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	gr, err := gzip.NewReader(file)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid gzip: " + err.Error()})
+		return
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	extractedFiles := 0
+
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tar read error: " + err.Error()})
+			return
+		}
+
+		// The export puts everything under "cache/", strip that prefix
+		// so we extract directly into s.cacheDir.
+		name := filepath.FromSlash(hdr.Name)
+		name = strings.TrimPrefix(name, "cache")
+		name = strings.TrimPrefix(name, string(filepath.Separator))
+		if name == "" || name == "." {
+			continue
+		}
+
+		target := filepath.Join(s.cacheDir, name)
+
+		// Path traversal protection.
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(s.cacheDir)+string(filepath.Separator)) {
+			log.Printf("warn: import-cache skip path traversal: %s", hdr.Name)
+			continue
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir: " + err.Error()})
+				return
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir: " + err.Error()})
+				return
+			}
+			f, fErr := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode&0o777))
+			if fErr != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create file: " + fErr.Error()})
+				return
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write file: " + err.Error()})
+				return
+			}
+			f.Close()
+			extractedFiles++
+		}
+	}
+
+	log.Printf("import-cache: extracted %d files", extractedFiles)
+
+	// Reload pinned packages from the (possibly updated) user-packages.json.
+	if err := s.loadPinnedPackages(); err != nil {
+		log.Printf("warn: reload pinned packages after import: %v", err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"extracted_files": extractedFiles,
+		"message":         fmt.Sprintf("Импортировано %d файлов", extractedFiles),
+	})
 }
 
 func (s *server) appendProxyLog(line string) {

@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { Download, Loader2 } from "lucide-svelte";
+  import { Download, Upload, Loader2 } from "lucide-svelte";
   import ProxyInstructions from "./lib/components/ProxyInstructions.svelte";
   import ModulePrefetch from "./lib/components/ModulePrefetch.svelte";
   import GoModPrefetch from "./lib/components/GoModPrefetch.svelte";
   import ProxyConsole from "./lib/components/ProxyConsole.svelte";
   import CachedModules from "./lib/components/CachedModules.svelte";
   import Toast from "./lib/components/Toast.svelte";
-  import { showToastMessage } from "./lib/stores";
+  import { showToastMessage, loadModules } from "./lib/stores";
 
   let proxyUrl = (window as any).__PROXY_URL__ || "http://127.0.0.1:8080";
 
   let exporting = false;
+  let importing = false;
+  let fileInput: HTMLInputElement;
 
   async function exportCache() {
     exporting = true;
@@ -43,6 +45,35 @@
       exporting = false;
     }
   }
+
+  async function importCache() {
+    const file = fileInput?.files?.[0];
+    if (!file) return;
+
+    importing = true;
+    try {
+      const formData = new FormData();
+      formData.append("archive", file);
+
+      const res = await fetch("/api/import-cache", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Ошибка импорта");
+      }
+
+      showToastMessage(data.message || "Импорт завершён!");
+      await loadModules();
+    } catch (err: any) {
+      showToastMessage("Ошибка: " + err.message);
+    } finally {
+      importing = false;
+      // Reset file input so the same file can be re-selected.
+      if (fileInput) fileInput.value = "";
+    }
+  }
 </script>
 
 <div class="max-w-6xl mx-auto py-8 px-4 text-base-content">
@@ -50,19 +81,41 @@
     <h1 class="text-4xl font-extrabold text-primary tracking-tight">
       go-offline
     </h1>
-    <button
-      class="btn btn-outline btn-primary btn-sm gap-2"
-      onclick={exportCache}
-      disabled={exporting}
-    >
-      {#if exporting}
-        <Loader2 size={16} class="animate-spin" />
-        Архивирование…
-      {:else}
-        <Download size={16} />
-        Экспорт кэша
-      {/if}
-    </button>
+    <div class="flex gap-2">
+      <input
+        type="file"
+        accept=".tar.gz,.tgz,application/gzip"
+        class="hidden"
+        bind:this={fileInput}
+        onchange={importCache}
+      />
+      <button
+        class="btn btn-outline btn-sm gap-2"
+        onclick={() => fileInput?.click()}
+        disabled={importing}
+      >
+        {#if importing}
+          <Loader2 size={16} class="animate-spin" />
+          Импорт…
+        {:else}
+          <Upload size={16} />
+          Импорт кэша
+        {/if}
+      </button>
+      <button
+        class="btn btn-outline btn-primary btn-sm gap-2"
+        onclick={exportCache}
+        disabled={exporting}
+      >
+        {#if exporting}
+          <Loader2 size={16} class="animate-spin" />
+          Архивирование…
+        {:else}
+          <Download size={16} />
+          Экспорт кэша
+        {/if}
+      </button>
+    </div>
   </div>
   <p class="text-base-content/70 mb-6 font-light text-lg">
     Локальный GOPROXY + prefetch зависимостей для офлайн-среды.
