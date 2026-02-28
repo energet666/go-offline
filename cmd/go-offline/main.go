@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -170,6 +172,7 @@ func main() {
 	mux.HandleFunc("/api/jobs/", s.handleJobStatus)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
+	mux.HandleFunc("/api/export-cache", s.handleExportCache)
 
 	log.Printf("go-offline started on %s", *listen)
 	log.Printf("cache directory: %s", *cacheDir)
@@ -1322,6 +1325,70 @@ func (s *server) handlePinned(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filename := fmt.Sprintf("go-offline-cache-%s.tar.gz", time.Now().Format("20060102-150405"))
+
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+	gw := gzip.NewWriter(w)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	baseDir := s.cacheDir
+	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Build a relative path inside the archive.
+		relPath, relErr := filepath.Rel(baseDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		// Use forward slashes inside the tar.
+		relPath = filepath.ToSlash(relPath)
+
+		// Skip the tmp directory – it contains ephemeral data.
+		if relPath == "tmp" || strings.HasPrefix(relPath, "tmp/") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		header, hErr := tar.FileInfoHeader(info, "")
+		if hErr != nil {
+			return hErr
+		}
+		header.Name = "cache/" + relPath
+
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+		f, fErr := os.Open(path)
+		if fErr != nil {
+			return fErr
+		}
+		defer f.Close()
+		_, copyErr := io.Copy(tw, f)
+		return copyErr
+	})
+	if err != nil {
+		log.Printf("error: export cache archive: %v", err)
 	}
 }
 
