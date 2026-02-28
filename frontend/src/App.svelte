@@ -10,14 +10,24 @@
 
   let proxyUrl = (window as any).__PROXY_URL__ || "http://127.0.0.1:8080";
 
-  let exporting = false;
+  let exportingFull = false;
+  let exportingInc = false;
   let importing = false;
   let fileInput: HTMLInputElement;
 
-  async function exportCache() {
-    exporting = true;
+  async function exportCache(incremental: boolean) {
+    if (incremental) {
+      exportingInc = true;
+    } else {
+      exportingFull = true;
+    }
     try {
-      const res = await fetch("/api/export-cache");
+      const qs = incremental ? "?incremental=true" : "";
+      const res = await fetch(`/api/export-cache${qs}`);
+      if (res.status === 204) {
+        showToastMessage("Нет новых пакетов для экспорта");
+        return;
+      }
       if (!res.ok) {
         const err = await res
           .json()
@@ -42,7 +52,11 @@
     } catch (err: any) {
       showToastMessage("Ошибка: " + err.message);
     } finally {
-      exporting = false;
+      if (incremental) {
+        exportingInc = false;
+      } else {
+        exportingFull = false;
+      }
     }
   }
 
@@ -102,19 +116,36 @@
           Импорт кэша
         {/if}
       </button>
-      <button
-        class="btn btn-outline btn-primary btn-sm gap-2"
-        onclick={exportCache}
-        disabled={exporting}
-      >
-        {#if exporting}
-          <Loader2 size={16} class="animate-spin" />
-          Архивирование…
-        {:else}
-          <Download size={16} />
-          Экспорт кэша
-        {/if}
-      </button>
+      <div class="join">
+        <button
+          class="btn btn-outline btn-primary btn-sm join-item gap-2"
+          onclick={() => exportCache(false)}
+          disabled={exportingFull || exportingInc}
+          title="Экспортировать весь кэш (создаст новую базовую точку)"
+        >
+          {#if exportingFull}
+            <Loader2 size={16} class="animate-spin" />
+            Всё…
+          {:else}
+            <Download size={16} />
+            Всё
+          {/if}
+        </button>
+        <button
+          class="btn btn-outline btn-secondary btn-sm join-item gap-2"
+          onclick={() => exportCache(true)}
+          disabled={exportingFull || exportingInc}
+          title="Экспортировать только пакеты, добавленные с прошлого экспорта"
+        >
+          {#if exportingInc}
+            <Loader2 size={16} class="animate-spin" />
+            Новые…
+          {:else}
+            <Download size={16} />
+            Новые
+          {/if}
+        </button>
+      </div>
     </div>
   </div>
   <p class="text-base-content/70 mb-6 font-light text-lg">

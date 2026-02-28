@@ -1348,7 +1348,55 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	incremental := r.URL.Query().Get("incremental") == "true"
+	statePath := filepath.Join(s.cacheDir, ".export-state.json")
+
+	state := make(map[string]bool)
+	if incremental {
+		stateBytes, err := os.ReadFile(statePath)
+		if err == nil {
+			var st struct {
+				Files map[string]bool `json:"files"`
+			}
+			if err := json.Unmarshal(stateBytes, &st); err == nil && st.Files != nil {
+				state = st.Files
+			}
+		}
+	}
+
+	newFiles := make(map[string]bool)
+
+	if incremental {
+		errFound := errors.New("found")
+		hasNewFiles := false
+		_ = filepath.Walk(s.cacheDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			relPath, relErr := filepath.Rel(s.cacheDir, path)
+			if relErr != nil {
+				return nil
+			}
+			relPath = filepath.ToSlash(relPath)
+			if relPath == ".export-state.json" {
+				return nil
+			}
+			if !state[relPath] {
+				hasNewFiles = true
+				return errFound
+			}
+			return nil
+		})
+		if !hasNewFiles {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+
 	filename := fmt.Sprintf("go-offline-cache-%s.tar.gz", time.Now().Format("20060102-150405"))
+	if incremental {
+		filename = fmt.Sprintf("go-offline-cache-inc-%s.tar.gz", time.Now().Format("20060102-150405"))
+	}
 
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
@@ -1372,6 +1420,19 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 		// Use forward slashes inside the tar.
 		relPath = filepath.ToSlash(relPath)
 
+		// Never export our internal state file.
+		if relPath == ".export-state.json" {
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if incremental && state[relPath] {
+			return nil
+		}
+
 		header, hErr := tar.FileInfoHeader(info, "")
 		if hErr != nil {
 			return hErr
@@ -1381,20 +1442,32 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 		if err := tw.WriteHeader(header); err != nil {
 			return err
 		}
-
-		if info.IsDir() {
-			return nil
-		}
 		f, fErr := os.Open(path)
 		if fErr != nil {
 			return fErr
 		}
 		defer f.Close()
 		_, copyErr := io.Copy(tw, f)
+		if copyErr == nil {
+			newFiles[relPath] = true
+		}
 		return copyErr
 	})
 	if err != nil {
 		log.Printf("error: export cache archive: %v", err)
+	} else {
+		// Update state on success
+		if !incremental {
+			state = newFiles
+		} else {
+			for k := range newFiles {
+				state[k] = true
+			}
+		}
+		stateBytes, _ := json.Marshal(struct {
+			Files map[string]bool `json:"files"`
+		}{Files: state})
+		_ = os.WriteFile(statePath, stateBytes, 0644)
 	}
 }
 
