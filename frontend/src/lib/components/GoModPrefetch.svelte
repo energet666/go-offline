@@ -3,7 +3,7 @@
     import { loadModules } from "../stores";
 
     let gomodInput = "";
-    let gomodRecursive = false;
+    let gomodRecursive = true;
     let gomodStatus = "";
     let gomodLog: string[] = [];
 

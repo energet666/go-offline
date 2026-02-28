@@ -39,16 +39,7 @@
         <div
             class="flex gap-2 items-center mt-3 border-b border-base-content/10 pb-4"
         >
-            <button
-                class="btn btn-sm btn-primary shadow-lg shadow-primary/20"
-                onclick={loadProxyLogs}>Обновить</button
-            >
-            <button
-                class="btn btn-sm btn-outline opacity-80"
-                onclick={() => (proxyLogLines = [])}>Очистить экран</button
-            >
-            <span
-                class="text-sm opacity-60 ml-3 bg-base-200/50 px-2 py-1 rounded-md"
+            <span class="text-sm opacity-60 bg-base-200/50 px-2 py-1 rounded-md"
                 >{proxyStatus}</span
             >
         </div>
