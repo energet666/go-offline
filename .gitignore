@@ -2,5 +2,6 @@
 cache/
 workdir/
 go-offline
-.gocachecmd/
-go-offline/web/
+.gocache
+cmd/go-offline/web/
+bin/
