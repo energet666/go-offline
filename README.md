@@ -13,9 +13,14 @@ Prefetch выполняется через стандартный `go` CLI и л
 
 ## Быстрый старт
 
+Для сборки требуются **Go** и **Node.js** (для сборки UI на Svelte).
+
 ```bash
-go build -o go-offline ./cmd/go-offline
-./go-offline -listen :8080 -cache ./cache
+# 1. Загрузка зависимостей и сборка UI + Go бэкенда
+make build
+
+# 2. Запуск приложения
+./bin/go-offline -listen :8080 -cache ./cache
 ```
 
 Откройте UI: `http://127.0.0.1:8080`
@@ -110,5 +115,5 @@ curl -X POST http://127.0.0.1:8080/api/import-cache -F archive=@go-offline-cache
 Для нестабильной сети можно стартовать так:
 
 ```bash
-./go-offline -listen :8080 -cache ./cache -http-timeout 10m -fetch-retries 6
+./bin/go-offline -listen :8080 -cache ./cache -http-timeout 10m -fetch-retries 6
 ```
