@@ -57,10 +57,11 @@ type pinnedEntry struct {
 }
 
 type cachedModule struct {
-	Module  string `json:"module"`
-	Version string `json:"version"`
-	Time    string `json:"time,omitempty"`
-	Pinned  bool   `json:"pinned,omitempty"`
+	Module   string `json:"module"`
+	Version  string `json:"version"`
+	Time     string `json:"time,omitempty"`
+	Pinned   bool   `json:"pinned,omitempty"`
+	Exported bool   `json:"exported,omitempty"`
 }
 
 type prefetchRequest struct {
@@ -1117,6 +1118,17 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 	out := make([]cachedModule, 0, 128)
 	query = strings.ToLower(strings.TrimSpace(query))
 
+	exportStatePath := filepath.Join(s.cacheDir, ".export-state.json")
+	exportedPaths := make(map[string]bool)
+	if stateBytes, err := os.ReadFile(exportStatePath); err == nil {
+		var st struct {
+			Files map[string]bool `json:"files"`
+		}
+		if err := json.Unmarshal(stateBytes, &st); err == nil && st.Files != nil {
+			exportedPaths = st.Files
+		}
+	}
+
 	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -1155,10 +1167,14 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 		if data, readErr := os.ReadFile(path); readErr == nil {
 			_ = json.Unmarshal(data, &info)
 		}
+
+		relFromCache := filepath.ToSlash(filepath.Join("gomodcache", "cache", "download", rel))
+
 		row := cachedModule{
-			Module:  modPath,
-			Version: ver,
-			Pinned:  s.isPinned(modPath, ver),
+			Module:   modPath,
+			Version:  ver,
+			Pinned:   s.isPinned(modPath, ver),
+			Exported: exportedPaths[relFromCache],
 		}
 		if !info.Time.IsZero() {
 			row.Time = info.Time.Format(time.RFC3339)

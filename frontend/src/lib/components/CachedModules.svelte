@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { Pin, PinOff, Copy, Check } from "lucide-svelte";
+    import { Pin, PinOff, Copy, Check, Archive } from "lucide-svelte";
     import {
         modulesStore,
         modulesQueryStore,
@@ -126,9 +126,17 @@
                                         {row.version}
                                     </div></td
                                 >
-                                <td class="text-xs opacity-60"
-                                    >{row.time || ""}</td
-                                >
+                                <td class="text-xs opacity-60">
+                                    {row.time || ""}
+                                    {#if row.exported}
+                                        <span
+                                            class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
+                                            data-tip="В архиве"
+                                        >
+                                            <Archive size={13} />
+                                        </span>
+                                    {/if}
+                                </td>
                                 <td>
                                     <div class="flex gap-1 justify-end">
                                         <button
@@ -227,9 +235,17 @@
                                         {row.version}
                                     </div></td
                                 >
-                                <td class="text-xs opacity-60"
-                                    >{row.time || ""}</td
-                                >
+                                <td class="text-xs opacity-60">
+                                    {row.time || ""}
+                                    {#if row.exported}
+                                        <span
+                                            class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
+                                            data-tip="В архиве"
+                                        >
+                                            <Archive size={13} />
+                                        </span>
+                                    {/if}
+                                </td>
                                 <td>
                                     <button
                                         class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 tooltip"

@@ -19,6 +19,7 @@ export interface CachedModule {
     version: string;
     time?: string;
     pinned?: boolean;
+    exported?: boolean;
 }
 
 export const modulesStore = writable<CachedModule[]>([]);
