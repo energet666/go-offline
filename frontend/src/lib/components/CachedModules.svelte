@@ -95,7 +95,7 @@
                 >
             </div>
             <div
-                class="overflow-x-auto rounded-xl border border-primary/20 bg-primary/5 mb-4"
+                class="overflow-visible rounded-xl border border-primary/20 bg-primary/5 mb-4"
             >
                 <table class="table table-sm w-full">
                     <thead class="bg-primary/10 text-base-content/80">
@@ -110,14 +110,11 @@
                         {#each pinnedModules as row (row.module + "@" + row.version)}
                             {@const key = `${row.module}@${row.version}`}
                             <tr
-                                class="cursor-pointer transition-colors hover:bg-base-content/5 {copiedRows[
+                                class="transition-colors hover:bg-base-content/5 {copiedRows[
                                     key
                                 ]
                                     ? 'bg-success/20!'
                                     : ''}"
-                                title="Нажмите, чтобы скопировать команду go get"
-                                onclick={() =>
-                                    copyGoGetCommand(row.module, row.version)}
                             >
                                 <td class="break-all font-medium opacity-90"
                                     >{row.module}</td
@@ -199,7 +196,7 @@
                 >
             </div>
             <div
-                class="overflow-x-auto rounded-xl border border-base-content/5 bg-base-200/30"
+                class="overflow-visible rounded-xl border border-base-content/5 bg-base-200/30"
             >
                 <table class="table table-sm w-full">
                     <thead class="bg-base-300/50 text-base-content/80">
@@ -214,14 +211,11 @@
                         {#each depModules as row (row.module + "@" + row.version)}
                             {@const key = `${row.module}@${row.version}`}
                             <tr
-                                class="cursor-pointer transition-colors hover:bg-base-content/5 {copiedRows[
+                                class="transition-colors hover:bg-base-content/5 {copiedRows[
                                     key
                                 ]
                                     ? 'bg-success/20!'
                                     : ''}"
-                                title="Нажмите, чтобы скопировать команду go get"
-                                onclick={() =>
-                                    copyGoGetCommand(row.module, row.version)}
                             >
                                 <td class="break-all font-medium opacity-90"
                                     >{row.module}</td
