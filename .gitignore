@@ -1,4 +1,5 @@
 .DS_Store
 cache/
 go-offline
-.gocachecmd/go-offline/web/
+.gocachecmd/
+go-offline/web/
