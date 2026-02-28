@@ -49,6 +49,7 @@
       URL.revokeObjectURL(url);
 
       showToastMessage("Архив кэша скачан!");
+      await loadModules();
     } catch (err: any) {
       showToastMessage("Ошибка: " + err.message);
     } finally {

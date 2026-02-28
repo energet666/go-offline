@@ -1445,7 +1445,9 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 
-		if incremental && state[relPath] {
+		// Always include user-packages.json even in incremental exports,
+		// because its content changes whenever packages are pinned/unpinned.
+		if incremental && state[relPath] && relPath != "user-packages.json" {
 			return nil
 		}
 
@@ -1480,9 +1482,9 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 				state[k] = true
 			}
 		}
-		stateBytes, _ := json.Marshal(struct {
+		stateBytes, _ := json.MarshalIndent(struct {
 			Files map[string]bool `json:"files"`
-		}{Files: state})
+		}{Files: state}, "", "  ")
 		_ = os.WriteFile(statePath, stateBytes, 0644)
 	}
 }
