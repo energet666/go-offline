@@ -210,6 +210,14 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.tmpl.Execute(w, data)
 		return
+	case strings.HasPrefix(r.URL.Path, "/assets/"):
+		fsys, err := fs.Sub(uiTemplateFS, "web/assets")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.StripPrefix("/assets/", http.FileServer(http.FS(fsys))).ServeHTTP(w, r)
+		return
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		http.NotFound(w, r)
 		return
@@ -1145,10 +1153,10 @@ func (j *jobState) fail(err error) {
 	j.Logs = append(j.Logs, time.Now().Format("15:04:05")+" job error: "+err.Error())
 }
 
-func (j *jobState) snapshot() jobState {
+func (j *jobState) snapshot() *jobState {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	cp := jobState{
+	cp := &jobState{
 		ID:         j.ID,
 		Kind:       j.Kind,
 		State:      j.State,

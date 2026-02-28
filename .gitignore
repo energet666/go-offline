@@ -1,4 +1,4 @@
 .DS_Store
 cache/
-/go-offline
+go-offline
 .gocache
