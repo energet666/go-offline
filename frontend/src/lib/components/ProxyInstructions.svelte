@@ -3,27 +3,31 @@
     export let proxyUrl: string;
 </script>
 
-<div class="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6">
-    <h3 class="font-semibold text-lg mb-2 text-primary">
+<div
+    class="bg-base-200/50 backdrop-blur-md border border-base-content/10 shadow-sm rounded-2xl p-5 mb-8"
+>
+    <h3 class="font-bold text-xl mb-3 text-primary flex items-center gap-2">
         Как подключить Go к этому прокси
     </h3>
-    <p class="text-sm mb-2">Установить переменные:</p>
-    <div class="relative mb-3">
+    <p class="text-sm mb-2 opacity-80">Установить переменные:</p>
+    <div class="relative mb-4 group">
         <pre
-            class="bg-slate-900 text-green-300 p-3 rounded-lg text-sm overflow-x-auto">go env -w GOPROXY={proxyUrl} GOSUMDB=off</pre>
+            class="bg-neutral text-success p-3 pl-4 rounded-xl text-sm overflow-x-auto font-mono shadow-inner border border-neutral-focus">go env -w GOPROXY={proxyUrl} GOSUMDB=off</pre>
         <button
-            class="absolute top-2 right-2 btn btn-xs btn-neutral w-[100px]"
+            class="absolute top-2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
             onclick={(e) =>
                 copyText(`go env -w GOPROXY=${proxyUrl} GOSUMDB=off`, e)}
             >Копировать</button
         >
     </div>
-    <p class="text-sm mb-2">Вернуть по умолчанию (отключить прокси):</p>
-    <div class="relative">
+    <p class="text-sm mb-2 opacity-80">
+        Вернуть по умолчанию (отключить прокси):
+    </p>
+    <div class="relative group">
         <pre
-            class="bg-slate-900 text-green-300 p-3 rounded-lg text-sm overflow-x-auto">go env -u GOPROXY GOSUMDB</pre>
+            class="bg-neutral text-success p-3 pl-4 rounded-xl text-sm overflow-x-auto font-mono shadow-inner border border-neutral-focus">go env -u GOPROXY GOSUMDB</pre>
         <button
-            class="absolute top-2 right-2 btn btn-xs btn-neutral w-[100px]"
+            class="absolute top-2 right-2 btn btn-xs btn-primary opacity-0 group-hover:opacity-100 transition-opacity w-[100px]"
             onclick={(e) => copyText("go env -u GOPROXY GOSUMDB", e)}
             >Копировать</button
         >

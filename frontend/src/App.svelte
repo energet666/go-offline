@@ -9,11 +9,11 @@
   let proxyUrl = (window as any).__PROXY_URL__ || "http://127.0.0.1:8080";
 </script>
 
-<div class="max-w-6xl mx-auto py-8 px-4 text-slate-800">
-  <h1 class="text-4xl font-bold mb-2 text-slate-900 tracking-tight">
+<div class="max-w-6xl mx-auto py-8 px-4 text-base-content">
+  <h1 class="text-4xl font-extrabold mb-2 text-primary tracking-tight">
     go-offline
   </h1>
-  <p class="text-slate-600 mb-6">
+  <p class="text-base-content/70 mb-6 font-light text-lg">
     Локальный GOPROXY + prefetch зависимостей для офлайн-среды.
   </p>
 
