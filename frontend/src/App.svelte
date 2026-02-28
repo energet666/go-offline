@@ -21,9 +21,52 @@
   let modulesQuery = "";
   let cachedModules: any[] = [];
 
-  async function copyText(text: string) {
+  let toastMessage = "";
+  let showToast = false;
+  let toastTimeout: any;
+
+  function showToastMessage(msg: string) {
+    toastMessage = msg;
+    showToast = true;
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+      showToast = false;
+    }, 2500);
+  }
+
+  async function copyText(text: string, event: Event) {
     try {
       await navigator.clipboard.writeText(text);
+      const btn = event.target as HTMLButtonElement;
+      if (btn) {
+        const originalText = btn.innerText;
+        btn.innerText = "Скопировано!";
+        btn.classList.remove("btn-neutral");
+        btn.classList.add("btn-success");
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.classList.remove("btn-success");
+          btn.classList.add("btn-neutral");
+        }, 2000);
+      }
+    } catch (err) {
+      console.error("Copy failed", err);
+    }
+  }
+
+  let copiedRows: Record<string, boolean> = {};
+
+  async function copyGoGetCommand(module: string, version: string) {
+    try {
+      await navigator.clipboard.writeText(`go get ${module}@${version}`);
+      const key = `${module}@${version}`;
+      copiedRows[key] = true;
+      copiedRows = { ...copiedRows };
+      showToastMessage(`Скопировано: go get ${module}@${version}`);
+      setTimeout(() => {
+        copiedRows[key] = false;
+        copiedRows = { ...copiedRows };
+      }, 1000);
     } catch (err) {
       console.error("Copy failed", err);
     }
@@ -162,8 +205,9 @@
       <pre
         class="bg-slate-900 text-green-300 p-3 rounded-lg text-sm overflow-x-auto">go env -w GOPROXY={proxyUrl} GOSUMDB=off</pre>
       <button
-        class="absolute top-2 right-2 btn btn-xs btn-neutral"
-        onclick={() => copyText(`go env -w GOPROXY=${proxyUrl} GOSUMDB=off`)}
+        class="absolute top-2 right-2 btn btn-xs btn-neutral w-[100px]"
+        onclick={(e) =>
+          copyText(`go env -w GOPROXY=${proxyUrl} GOSUMDB=off`, e)}
         >Копировать</button
       >
     </div>
@@ -172,8 +216,9 @@
       <pre
         class="bg-slate-900 text-green-300 p-3 rounded-lg text-sm overflow-x-auto">go env -u GOPROXY GOSUMDB</pre>
       <button
-        class="absolute top-2 right-2 btn btn-xs btn-neutral"
-        onclick={() => copyText("go env -u GOPROXY GOSUMDB")}>Копировать</button
+        class="absolute top-2 right-2 btn btn-xs btn-neutral w-[100px]"
+        onclick={(e) => copyText("go env -u GOPROXY GOSUMDB", e)}
+        >Копировать</button
       >
     </div>
   </div>
@@ -344,7 +389,15 @@
           </thead>
           <tbody>
             {#each cachedModules as row}
-              <tr>
+              <tr
+                class="cursor-pointer transition-colors hover:bg-base-200 {copiedRows[
+                  `${row.module}@${row.version}`
+                ]
+                  ? 'bg-success/20!'
+                  : ''}"
+                title="Нажмите, чтобы скопировать команду go get"
+                onclick={() => copyGoGetCommand(row.module, row.version)}
+              >
                 <td class="break-all">{row.module}</td>
                 <td
                   ><div class="badge badge-ghost badge-sm">
@@ -367,3 +420,25 @@
     </div>
   </div>
 </div>
+
+{#if showToast}
+  <div class="toast toast-top toast-center z-100">
+    <div
+      class="alert alert-success shadow-lg text-success-content font-medium rounded-xl"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="stroke-current shrink-0 h-6 w-6"
+        fill="none"
+        viewBox="0 0 24 24"
+        ><path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+        /></svg
+      >
+      <span>{toastMessage}</span>
+    </div>
+  </div>
+{/if}
