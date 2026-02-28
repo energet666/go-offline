@@ -131,7 +131,7 @@
                                     {#if row.exported}
                                         <span
                                             class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
-                                            data-tip="В архиве"
+                                            data-tip="Экспортировано"
                                         >
                                             <Archive size={13} />
                                         </span>
@@ -240,7 +240,7 @@
                                     {#if row.exported}
                                         <span
                                             class="inline-flex items-center ml-2 text-success opacity-80 tooltip"
-                                            data-tip="В архиве"
+                                            data-tip="Экспортировано"
                                         >
                                             <Archive size={13} />
                                         </span>
