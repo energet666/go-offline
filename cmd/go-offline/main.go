@@ -273,6 +273,18 @@ func (s *server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve package path -> module path before pinning or starting the job.
+	// Use a short timeout so we don't block the HTTP response too long.
+	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	resolvedModule, resolveErr := s.resolveModulePath(resolveCtx, req.Module, req.Version)
+	resolveCancel()
+	if resolveErr != nil {
+		log.Printf("warn: resolve module path %s: %v", req.Module, resolveErr)
+	} else if resolvedModule != req.Module {
+		log.Printf("info: resolved package path %s -> module %s", req.Module, resolvedModule)
+		req.Module = resolvedModule
+	}
+
 	job := s.newJob("prefetch-module")
 	job.logf("start module=%s version=%s recursive=%t", req.Module, valueOr(req.Version, "latest"), req.Recursive)
 
@@ -587,6 +599,18 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 	}
 	defer os.RemoveAll(workdir)
 
+	// The user may have entered a package path (e.g. golang.org/x/net/websocket)
+	// instead of a module path (e.g. golang.org/x/net). Resolve to the actual
+	// module path by probing the upstream proxy.
+	resolvedModule, err := s.resolveModulePath(ctx, modPath, version)
+	if err != nil {
+		return fmt.Errorf("resolve module path for %q: %w", modPath, err)
+	}
+	if resolvedModule != modPath {
+		logf("resolved package path %s -> module %s", modPath, resolvedModule)
+		modPath = resolvedModule
+	}
+
 	target := modPath + "@" + valueOr(version, "latest")
 	logf("go prefetch target %s", target)
 
@@ -618,6 +642,50 @@ func (s *server) prefetchModuleWithGo(ctx context.Context, modPath, version stri
 		s.prefetchModuleGraphBestEffort(ctx, workdir, logf)
 	}
 	return nil
+}
+
+// resolveModulePath resolves a package path to the root module path by probing
+// the upstream GOPROXY. It tries successively shorter path prefixes (from
+// longest to shortest) until it finds one that the proxy recognises as a valid
+// module. If the path itself is already a valid module path it is returned
+// unchanged.
+func (s *server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
+	parts := strings.Split(pkgPath, "/")
+	// Try from longest to shortest prefix.
+	// We start at the full path and walk up to the root.
+	for i := len(parts); i >= 1; i-- {
+		candidate := strings.Join(parts[:i], "/")
+		escapedPath, err := escapeModulePath(candidate)
+		if err != nil {
+			continue
+		}
+		var probeURL string
+		if version != "" && version != "latest" {
+			// Probe a specific version via /@v/<version>.info
+			escapedVer, err := escapeModuleVersion(version)
+			if err != nil {
+				continue
+			}
+			probeURL = s.upstream + "/" + escapedPath + "/@v/" + escapedVer + ".info"
+		} else {
+			// Probe the latest endpoint
+			probeURL = s.upstream + "/" + escapedPath + "/@latest"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return candidate, nil
+		}
+	}
+	// Fallback: return the original path; go mod download will produce a clear error.
+	return pkgPath, nil
 }
 
 // resolveVersionFromCache finds the latest cached version of modPath by scanning
