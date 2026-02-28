@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { CircleCheck } from "lucide-svelte";
 
   let proxyUrl = (window as any).__PROXY_URL__ || "http://127.0.0.1:8080";
 
@@ -426,18 +427,7 @@
     <div
       class="alert alert-success shadow-lg text-success-content font-medium rounded-xl"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="stroke-current shrink-0 h-6 w-6"
-        fill="none"
-        viewBox="0 0 24 24"
-        ><path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-        /></svg
-      >
+      <CircleCheck class="shrink-0 h-6 w-6" />
       <span>{toastMessage}</span>
     </div>
   </div>
