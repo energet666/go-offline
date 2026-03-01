@@ -1,6 +1,5 @@
 .DS_Store
 cache/
 workdir/
-./go-offline
-.gocache
+/go-offline
 bin/
