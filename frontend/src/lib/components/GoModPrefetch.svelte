@@ -2,10 +2,10 @@
 	import { fetchJSON, watchJob } from "../utils";
 	import { loadModules } from "../stores";
 
-	let gomodInput = "";
-	let gomodRecursive = true;
-	let gomodStatus = "";
-	let gomodLog: string[] = [];
+	let gomodInput = $state("");
+	let gomodRecursive = $state(true);
+	let gomodStatus = $state("");
+	let gomodLog = $state<string[]>([]);
 
 	async function startGomodPrefetch() {
 		gomodStatus = "Создание задачи...";

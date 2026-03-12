@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { Pin, PinOff, Copy, Check, Archive } from "lucide-svelte";
+	import { Pin, PinOff, Copy, Check, Archive, ChevronRight } from "lucide-svelte";
 	import {
 		modulesStore,
 		modulesQueryStore,
@@ -10,24 +10,36 @@
 		type CachedModule,
 	} from "../stores";
 
-	export let proxyUrl: string;
+	interface Props {
+		proxyUrl: string;
+	}
 
-	let copiedRows: Record<string, boolean> = {};
+	let { proxyUrl }: Props = $props();
+
+	let copiedRows = $state<Record<string, boolean>>({});
+	const DEPS_STORAGE_KEY = "go-offline:deps-expanded";
+	let depsExpanded = $state((() => {
+		const stored = localStorage.getItem(DEPS_STORAGE_KEY);
+		return stored === null ? false : stored === "true";
+	})());
+
+	function toggleDeps() {
+		depsExpanded = !depsExpanded;
+		localStorage.setItem(DEPS_STORAGE_KEY, String(depsExpanded));
+	}
 
 	// Split modules into pinned (user-requested) and dependencies
-	$: pinnedModules = $modulesStore.filter((m) => m.pinned);
-	$: depModules = $modulesStore.filter((m) => !m.pinned);
+	let pinnedModules = $derived($modulesStore.filter((m) => m.pinned));
+	let depModules = $derived($modulesStore.filter((m) => !m.pinned));
 
 	async function copyGoGetCommand(module: string, version: string) {
 		try {
 			await navigator.clipboard.writeText(`go get ${module}@${version}`);
 			const key = `${module}@${version}`;
 			copiedRows[key] = true;
-			copiedRows = { ...copiedRows };
 			showToastMessage(`Скопировано: go get ${module}@${version}`);
 			setTimeout(() => {
 				copiedRows[key] = false;
-				copiedRows = { ...copiedRows };
 			}, 1000);
 		} catch (err) {
 			console.error("Copy failed", err);
@@ -179,80 +191,90 @@
 
 		<!-- Transitive dependencies -->
 		{#if depModules.length > 0}
-			<div class="mb-1 flex items-center gap-2">
-				<span class="opacity-40 text-xs">⬡</span>
-				<span class="text-sm font-semibold opacity-70 uppercase tracking-wider">
+			<button
+				class="mb-1 flex items-center gap-2 cursor-pointer select-none group w-full text-left"
+				onclick={toggleDeps}
+			>
+				<span
+					class="transition-transform duration-200 opacity-50 group-hover:opacity-80"
+					class:rotate-90={depsExpanded}
+				>
+					<ChevronRight size={14} />
+				</span>
+				<span class="text-sm font-semibold opacity-70 uppercase tracking-wider group-hover:opacity-90 transition-opacity">
 					Транзитивные зависимости
 				</span>
 				<span class="badge badge-ghost badge-sm">{depModules.length}</span>
-			</div>
-			<div
-				class="overflow-visible rounded-xl border border-base-content/5 bg-base-200/30 [&_thead_th:first-child]:rounded-tl-[11px] [&_thead_th:last-child]:rounded-tr-[11px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[11px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[11px]"
-			>
-				<table class="table table-sm w-full">
-					<thead class="bg-base-300/50 text-base-content/80">
-						<tr>
-							<th class="w-10"></th>
-							<th>Module</th>
-							<th>Version</th>
-							<th>Time</th>
-							<th class="w-10"></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each depModules as row (row.module + "@" + row.version)}
-							{@const key = `${row.module}@${row.version}`}
-							<tr
-								class="transition-colors hover:bg-base-content/5 {copiedRows[
-									key
-								]
-									? 'bg-success/20!'
-									: ''}"
-							>
-								<td class="text-center align-middle">
-									{#if row.exported}
-										<div
-											class="inline-flex items-center justify-center text-success opacity-80 tooltip"
-											data-tip="Экспортировано"
-										>
-											<Archive size={14} />
-										</div>
-									{/if}
-								</td>
-								<td class="break-all font-medium opacity-90">
-									{row.module}
-								</td>
-								<td>
-									<div
-										class="badge badge-ghost badge-sm border-base-content/10"
-									>
-										{row.version}
-									</div>
-								</td>
-								<td class="text-xs opacity-60">
-									{row.time || ""}
-								</td>
-								<td>
-									<button
-										class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 tooltip"
-										data-tip="Скопировать go get"
-										onclick={(e) => {
-											e.stopPropagation();
-											copyGoGetCommand(row.module, row.version);
-										}}
-									>
-										{#if copiedRows[key]}
-											<Check size={13} class="text-success" />
-										{:else}
-											<Copy size={13} />
-										{/if}
-									</button>
-								</td>
+			</button>
+			{#if depsExpanded}
+				<div
+					class="overflow-visible rounded-xl border border-base-content/5 bg-base-200/30 [&_thead_th:first-child]:rounded-tl-[11px] [&_thead_th:last-child]:rounded-tr-[11px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[11px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[11px]"
+				>
+					<table class="table table-sm w-full">
+						<thead class="bg-base-300/50 text-base-content/80">
+							<tr>
+								<th class="w-10"></th>
+								<th>Module</th>
+								<th>Version</th>
+								<th>Time</th>
+								<th class="w-10"></th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+						</thead>
+						<tbody>
+							{#each depModules as row (row.module + "@" + row.version)}
+								{@const key = `${row.module}@${row.version}`}
+								<tr
+									class="transition-colors hover:bg-base-content/5 {copiedRows[
+										key
+									]
+										? 'bg-success/20!'
+										: ''}"
+								>
+									<td class="text-center align-middle">
+										{#if row.exported}
+											<div
+												class="inline-flex items-center justify-center text-success opacity-80 tooltip"
+												data-tip="Экспортировано"
+											>
+												<Archive size={14} />
+											</div>
+										{/if}
+									</td>
+									<td class="break-all font-medium opacity-90">
+										{row.module}
+									</td>
+									<td>
+										<div
+											class="badge badge-ghost badge-sm border-base-content/10"
+										>
+											{row.version}
+										</div>
+									</td>
+									<td class="text-xs opacity-60">
+										{row.time || ""}
+									</td>
+									<td>
+										<button
+											class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 tooltip"
+											data-tip="Скопировать go get"
+											onclick={(e) => {
+												e.stopPropagation();
+												copyGoGetCommand(row.module, row.version);
+											}}
+										>
+											{#if copiedRows[key]}
+												<Check size={13} class="text-success" />
+											{:else}
+												<Copy size={13} />
+											{/if}
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		{/if}
 
 		{#if $modulesStore.length === 0}

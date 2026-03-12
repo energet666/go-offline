@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Download, Upload, Loader2 } from "lucide-svelte";
+	import { Download, Upload, Loader2, ChevronRight } from "lucide-svelte";
 	import ProxyInstructions from "./lib/components/ProxyInstructions.svelte";
 	import ModulePrefetch from "./lib/components/ModulePrefetch.svelte";
 	import GoModPrefetch from "./lib/components/GoModPrefetch.svelte";
@@ -15,10 +15,21 @@
 			? "http://127.0.0.1:8080"
 			: window.location.origin;
 
-	let exportingFull = false;
-	let exportingInc = false;
-	let importing = false;
+	let exportingFull = $state(false);
+	let exportingInc = $state(false);
+	let importing = $state(false);
 	let fileInput: HTMLInputElement;
+
+	const PREFETCH_STORAGE_KEY = "go-offline:prefetch-expanded";
+	let prefetchExpanded = $state((() => {
+		const stored = localStorage.getItem(PREFETCH_STORAGE_KEY);
+		return stored === null ? true : stored === "true";
+	})());
+
+	function togglePrefetch() {
+		prefetchExpanded = !prefetchExpanded;
+		localStorage.setItem(PREFETCH_STORAGE_KEY, String(prefetchExpanded));
+	}
 
 	async function exportCache(incremental: boolean) {
 		if (incremental) {
@@ -160,9 +171,27 @@
 
 	<ProxyInstructions {proxyUrl} />
 
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-		<ModulePrefetch />
-		<GoModPrefetch />
+	<div class="mb-6">
+		<button
+			class="mb-3 flex items-center gap-2 cursor-pointer select-none group"
+			onclick={togglePrefetch}
+		>
+			<span
+				class="transition-transform duration-200 opacity-50 group-hover:opacity-80"
+				class:rotate-90={prefetchExpanded}
+			>
+				<ChevronRight size={16} />
+			</span>
+			<span class="text-lg font-bold opacity-80 group-hover:opacity-100 transition-opacity">
+				Prefetch
+			</span>
+		</button>
+		{#if prefetchExpanded}
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+				<ModulePrefetch />
+				<GoModPrefetch />
+			</div>
+		{/if}
 	</div>
 
 	<ProxyConsole />

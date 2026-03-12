@@ -2,11 +2,11 @@
 	import { fetchJSON, watchJob } from "../utils";
 	import { loadModules } from "../stores";
 
-	let moduleInput = "";
-	let versionInput = "";
-	let recursivePrefetch = true;
-	let prefetchStatus = "";
-	let prefetchLog: string[] = [];
+	let moduleInput = $state("");
+	let versionInput = $state("");
+	let recursivePrefetch = $state(true);
+	let prefetchStatus = $state("");
+	let prefetchLog = $state<string[]>([]);
 
 	async function startPrefetch() {
 		prefetchStatus = "Создание задачи...";
