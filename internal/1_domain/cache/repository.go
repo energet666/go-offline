@@ -29,4 +29,6 @@ type PinnedRepository interface {
 	ResolvePinnedLatest(module, resolvedVersion string)
 	// List возвращает список всех закрепленных модулей
 	List() []PinnedEntry
+	// Reload перечитывает данные закреплённых пакетов с диска (например, после импорта архива)
+	Reload() error
 }

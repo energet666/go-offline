@@ -155,3 +155,7 @@ func (r *pinnedRepository) List() []cache.PinnedEntry {
 	})
 	return entries
 }
+
+func (r *pinnedRepository) Reload() error {
+	return r.load()
+}

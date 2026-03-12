@@ -64,5 +64,15 @@ func (s *CacheService) ExportCache(w io.Writer, incremental bool) (string, error
 }
 
 func (s *CacheService) ImportCache(r io.Reader) (int, error) {
-	return s.cacheRepo.Import(r)
+	n, err := s.cacheRepo.Import(r)
+	if err != nil {
+		return n, err
+	}
+	// Архив может содержать обновлённый user-packages.json —
+	// перечитываем закреплённые пакеты из файла, чтобы in-memory состояние
+	// соответствовало тому, что записано на диске.
+	if reloadErr := s.pinnedRepo.Reload(); reloadErr != nil {
+		return n, fmt.Errorf("imported %d files but failed to reload pinned packages: %w", n, reloadErr)
+	}
+	return n, nil
 }
