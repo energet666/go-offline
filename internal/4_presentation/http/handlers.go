@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -52,10 +53,14 @@ func isProxyRequestPath(path string) bool {
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/":
-		data := map[string]string{
-			"ProxyURL": "http://" + r.Host,
+		f, err := uiTemplateFS.Open("web/index.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
 		}
-		_ = s.tmpl.Execute(w, data)
+		defer f.Close()
+		stat, _ := f.Stat()
+		http.ServeContent(w, r, "index.html", stat.ModTime(), f.(io.ReadSeeker))
 		return
 	case strings.HasPrefix(r.URL.Path, "/assets/"):
 		fsys, err := fs.Sub(uiTemplateFS, "web/assets")

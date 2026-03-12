@@ -1,11 +1,6 @@
 package httphandlers
 
-import (
-	"embed"
-	"html/template"
-)
+import "embed"
 
 //go:embed web
 var uiTemplateFS embed.FS
-
-var UITmpl = template.Must(template.ParseFS(uiTemplateFS, "web/index.html"))

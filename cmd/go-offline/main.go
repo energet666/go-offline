@@ -74,7 +74,6 @@ func main() {
 		GoBin:        *goBin,
 		MaxJobBytes:  *maxJobBytes,
 		MaxModules:   *maxModules,
-		Tmpl:         httphandlers.UITmpl,
 		Downloader:   downloader,
 		CacheSvc:     cacheSvc,
 		JobsRepo:     jobsRepo,

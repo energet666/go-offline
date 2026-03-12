@@ -8,7 +8,11 @@
   import Toast from "./lib/components/Toast.svelte";
   import { showToastMessage, loadModules } from "./lib/stores";
 
-  let proxyUrl = (window as any).__PROXY_URL__ || "http://127.0.0.1:8080";
+  // Работаем по порту 5173 для локальной разработки во время использования Vite, 
+  // в противном случае берём текущий origin где развёрнут Go-сервер.
+  let proxyUrl = window.location.port === "5173" 
+    ? "http://127.0.0.1:8080" 
+    : window.location.origin;
 
   let exportingFull = false;
   let exportingInc = false;

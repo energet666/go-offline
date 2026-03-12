@@ -2,7 +2,6 @@ package httphandlers
 
 import (
 	"context"
-	"html/template"
 	"net/http"
 	"sync"
 	"time"
@@ -22,7 +21,6 @@ type Server struct {
 	goBin        string
 	maxJobBytes  int64
 	maxModules   int64
-	tmpl         *template.Template
 	downloader   prefetch.Downloader
 	prefetchSvc  *application.PrefetchService
 	cacheSvc     *application.CacheService
@@ -73,7 +71,6 @@ type ServerConfig struct {
 	GoBin        string
 	MaxJobBytes  int64
 	MaxModules   int64
-	Tmpl         *template.Template
 	Downloader   prefetch.Downloader
 	CacheSvc     *application.CacheService
 	JobsRepo     prefetch.JobRepository
@@ -91,7 +88,6 @@ func NewServer(cfg ServerConfig) *Server {
 		goBin:        cfg.GoBin,
 		maxJobBytes:  cfg.MaxJobBytes,
 		maxModules:   cfg.MaxModules,
-		tmpl:         cfg.Tmpl,
 		downloader:   cfg.Downloader,
 		cacheSvc:     cfg.CacheSvc,
 		jobsRepo:     cfg.JobsRepo,
