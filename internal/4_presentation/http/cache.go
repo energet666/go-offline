@@ -1,8 +1,12 @@
 package httphandlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+
+	application "go-offline/internal/2_application"
+	"go-offline/internal/1_domain/cache"
 )
 
 func (s *Server) handleExportCache(w http.ResponseWriter, r *http.Request) {
@@ -13,18 +17,22 @@ func (s *Server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 
 	incremental := r.URL.Query().Get("incremental") == "true"
 
-	filename, err := s.cacheSvc.ExportCache(w, incremental)
-	if err != nil {
-		// Log error, but writer stream might have already been sent partially.
-		_ = err
-	}
-
-	if filename == "" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
+	filename := application.ExportFilename(incremental)
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+	err := s.cacheSvc.ExportCache(w, incremental)
+	if err != nil {
+		if errors.Is(err, cache.ErrNoNewFiles) {
+			// Reset headers and send 204 No Content.
+			w.Header().Del("Content-Type")
+			w.Header().Del("Content-Disposition")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Data may have already been partially written; log the error.
+		_ = err
+	}
 }
 
 func (s *Server) handleImportCache(w http.ResponseWriter, r *http.Request) {

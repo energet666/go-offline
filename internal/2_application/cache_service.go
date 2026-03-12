@@ -1,7 +1,6 @@
 package application
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -46,21 +45,18 @@ func (s *CacheService) ListCachedModules(query string) ([]cache.Module, error) {
 	return out, nil
 }
 
-func (s *CacheService) ExportCache(w io.Writer, incremental bool) (string, error) {
-	filename := fmt.Sprintf("go-offline-cache-%s.tar.gz", time.Now().Format("20060102-150405"))
+// ExportFilename returns a descriptive archive filename for the given export kind.
+func ExportFilename(incremental bool) string {
+	ts := time.Now().Format("2006-01-02_15-04-05")
+	kind := "full"
 	if incremental {
-		filename = fmt.Sprintf("go-offline-cache-inc-%s.tar.gz", time.Now().Format("20060102-150405"))
+		kind = "incremental"
 	}
+	return fmt.Sprintf("go-offline-%s-%s.tar.gz", kind, ts)
+}
 
-	err := s.cacheRepo.Export(w, incremental)
-	if err != nil {
-		if errors.Is(err, cache.ErrNoNewFiles) {
-			return "", nil // StatusNoContent equivalent
-		}
-		return filename, err
-	}
-
-	return filename, nil
+func (s *CacheService) ExportCache(w io.Writer, incremental bool) error {
+	return s.cacheRepo.Export(w, incremental)
 }
 
 func (s *CacheService) ImportCache(r io.Reader) (int, error) {
