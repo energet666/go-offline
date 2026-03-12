@@ -42,6 +42,7 @@ func (d *downloader) DownloadModule(ctx context.Context, modPath, version string
 		return err
 	}
 	defer os.RemoveAll(workdir)
+	defer d.cleanupUnpackedModules(logf)
 
 	target := modPath + "@" + valueOr(version, "latest")
 	logf("go prefetch target %s", target)
@@ -77,6 +78,7 @@ func (d *downloader) DownloadGoMod(ctx context.Context, goMod string, recursive 
 		return err
 	}
 	defer os.RemoveAll(workdir)
+	defer d.cleanupUnpackedModules(logf)
 
 	if err := os.WriteFile(filepath.Join(workdir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		return err
@@ -207,4 +209,40 @@ func (d *downloader) goEnv() []string {
 	env = append(env, "GOCACHE="+filepath.Join(d.workDir, "gocache"))
 	env = append(env, "GONOSUMDB=*")
 	return env
+}
+
+// cleanupUnpackedModules removes unpacked module source directories from
+// GOMODCACHE, keeping only the "cache" subdirectory which contains the
+// .info, .mod, .zip files needed by the proxy.
+// Go marks cached module files as read-only, so we must make them writable
+// before removal.
+func (d *downloader) cleanupUnpackedModules(logf func(string, ...any)) {
+	gomodcache := filepath.Join(d.cacheDir, "gomodcache")
+	entries, err := os.ReadDir(gomodcache)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "cache" {
+			continue
+		}
+		path := filepath.Join(gomodcache, entry.Name())
+		// Make all files and directories writable so os.RemoveAll can delete them.
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			} else {
+				_ = os.Chmod(p, 0o644)
+			}
+			return nil
+		})
+		if err := os.RemoveAll(path); err != nil {
+			logf("warn: cleanup unpacked module %s: %v", entry.Name(), err)
+		} else {
+			logf("cleanup: removed unpacked module directory %s", entry.Name())
+		}
+	}
 }
