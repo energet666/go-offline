@@ -1,4 +1,4 @@
-package main
+package fs_cache
 
 import (
 	"archive/tar"
@@ -9,20 +9,42 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"go-offline/internal/1_domain/cache"
 )
 
-func (s *server) listCachedModules(query string) ([]cachedModule, error) {
-	base := s.proxyBaseDir()
-	out := make([]cachedModule, 0, 128)
+type cacheRepository struct {
+	cacheDir string
+	workDir  string
+}
+
+// NewCacheRepository creates a new file-system backed repository for cached modules.
+func NewCacheRepository(cacheDir, workDir string) cache.CacheRepository {
+	return &cacheRepository{
+		cacheDir: cacheDir,
+		workDir:  workDir,
+	}
+}
+
+func (r *cacheRepository) proxyBaseDir() string {
+	newBase := filepath.Join(r.cacheDir, "gomodcache", "cache", "download")
+	if st, err := os.Stat(newBase); err == nil && st.IsDir() {
+		return newBase
+	}
+	return filepath.Join(r.workDir, "proxy")
+}
+
+func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
+	base := r.proxyBaseDir()
+	out := make([]cache.Module, 0, 128)
 	query = strings.ToLower(strings.TrimSpace(query))
 
-	exportStatePath := filepath.Join(s.cacheDir, ".export-state.json")
+	exportStatePath := filepath.Join(r.cacheDir, ".export-state.json")
 	exportedPaths := make(map[string]bool)
 	if stateBytes, err := os.ReadFile(exportStatePath); err == nil {
 		var st struct {
@@ -54,13 +76,13 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 		}
 
 		escapedMod := strings.Join(parts[:len(parts)-2], "/")
-		modPath, err := unescapeModulePath(escapedMod)
+		modPath, err := cache.UnescapeModulePath(escapedMod)
 		if err != nil {
 			modPath = escapedMod
 		}
 
 		escapedVer := strings.TrimSuffix(parts[len(parts)-1], ".info")
-		ver, err := unescapeModuleVersion(escapedVer)
+		ver, err := cache.UnescapeModuleVersion(escapedVer)
 		if err != nil {
 			ver = escapedVer
 		}
@@ -74,11 +96,11 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 
 		relFromCache := filepath.ToSlash(filepath.Join("gomodcache", "cache", "download", rel))
 
-		row := cachedModule{
+		row := cache.Module{
 			Module:   modPath,
 			Version:  ver,
-			Pinned:   s.isPinned(modPath, ver),
 			Exported: exportedPaths[relFromCache],
+			// Pinned flag will be populated by the application service
 		}
 		if !info.Time.IsZero() {
 			row.Time = info.Time.Format(time.RFC3339)
@@ -97,11 +119,8 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 		return nil, err
 	}
 
+	// Default sort; application service will re-sort specifically for pinned modules
 	sort.Slice(out, func(i, j int) bool {
-		// Pinned packages first, then alphabetical.
-		if out[i].Pinned != out[j].Pinned {
-			return out[i].Pinned
-		}
 		if out[i].Module == out[j].Module {
 			return out[i].Version < out[j].Version
 		}
@@ -110,16 +129,10 @@ func (s *server) listCachedModules(query string) ([]cachedModule, error) {
 	return out, nil
 }
 
-func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	incremental := r.URL.Query().Get("incremental") == "true"
-	statePath := filepath.Join(s.cacheDir, ".export-state.json")
-
+func (r *cacheRepository) Export(w io.Writer, incremental bool) error {
+	statePath := filepath.Join(r.cacheDir, ".export-state.json")
 	state := make(map[string]bool)
+
 	if incremental {
 		stateBytes, err := os.ReadFile(statePath)
 		if err == nil {
@@ -137,11 +150,11 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 	if incremental {
 		errFound := errors.New("found")
 		hasNewFiles := false
-		_ = filepath.Walk(s.cacheDir, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(r.cacheDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
-			relPath, relErr := filepath.Rel(s.cacheDir, path)
+			relPath, relErr := filepath.Rel(r.cacheDir, path)
 			if relErr != nil {
 				return nil
 			}
@@ -156,25 +169,16 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		if !hasNewFiles {
-			w.WriteHeader(http.StatusNoContent)
-			return
+			return cache.ErrNoNewFiles
 		}
 	}
-
-	filename := fmt.Sprintf("go-offline-cache-%s.tar.gz", time.Now().Format("20060102-150405"))
-	if incremental {
-		filename = fmt.Sprintf("go-offline-cache-inc-%s.tar.gz", time.Now().Format("20060102-150405"))
-	}
-
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 
 	gw := gzip.NewWriter(w)
 	defer gw.Close()
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	baseDir := s.cacheDir
+	baseDir := r.cacheDir
 	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -225,42 +229,29 @@ func (s *server) handleExportCache(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("error: export cache archive: %v", err)
-	} else {
-		// Update state on success
-		if !incremental {
-			state = newFiles
-		} else {
-			for k := range newFiles {
-				state[k] = true
-			}
-		}
-		stateBytes, _ := json.MarshalIndent(struct {
-			Files map[string]bool `json:"files"`
-		}{Files: state}, "", "  ")
-		_ = os.WriteFile(statePath, stateBytes, 0644)
+		return err
 	}
+
+	// Update state on success
+	if !incremental {
+		state = newFiles
+	} else {
+		for k := range newFiles {
+			state[k] = true
+		}
+	}
+	stateBytes, _ := json.MarshalIndent(struct {
+		Files map[string]bool `json:"files"`
+	}{Files: state}, "", "  ")
+	_ = os.WriteFile(statePath, stateBytes, 0644)
+
+	return nil
 }
 
-func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	// Limit upload size to 4 GB.
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
-
-	file, _, err := r.FormFile("archive")
+func (r *cacheRepository) Import(read io.Reader) (int, error) {
+	gr, err := gzip.NewReader(read)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing or invalid archive file: " + err.Error()})
-		return
-	}
-	defer file.Close()
-
-	gr, err := gzip.NewReader(file)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid gzip: " + err.Error()})
-		return
+		return 0, fmt.Errorf("invalid gzip: %w", err)
 	}
 	defer gr.Close()
 
@@ -273,12 +264,11 @@ func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tar read error: " + err.Error()})
-			return
+			return 0, fmt.Errorf("tar read error: %w", err)
 		}
 
 		// The export puts everything under "cache/", strip that prefix
-		// so we extract directly into s.cacheDir.
+		// so we extract directly into r.cacheDir.
 		name := filepath.FromSlash(hdr.Name)
 		name = strings.TrimPrefix(name, "cache")
 		name = strings.TrimPrefix(name, string(filepath.Separator))
@@ -286,10 +276,10 @@ func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		target := filepath.Join(s.cacheDir, name)
+		target := filepath.Join(r.cacheDir, name)
 
 		// Path traversal protection.
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(s.cacheDir)+string(filepath.Separator)) {
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(r.cacheDir)+string(filepath.Separator)) {
 			log.Printf("warn: import-cache skip path traversal: %s", hdr.Name)
 			continue
 		}
@@ -297,23 +287,19 @@ func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir: " + err.Error()})
-				return
+				return 0, fmt.Errorf("mkdir: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "mkdir: " + err.Error()})
-				return
+				return 0, fmt.Errorf("mkdir: %w", err)
 			}
 			f, fErr := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode&0o777))
 			if fErr != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create file: " + fErr.Error()})
-				return
+				return 0, fmt.Errorf("create file: %w", fErr)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
 				f.Close()
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write file: " + err.Error()})
-				return
+				return 0, fmt.Errorf("write file: %w", err)
 			}
 			f.Close()
 			extractedFiles++
@@ -322,13 +308,5 @@ func (s *server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("import-cache: extracted %d files", extractedFiles)
 
-	// Reload pinned packages from the (possibly updated) user-packages.json.
-	if err := s.loadPinnedPackages(); err != nil {
-		log.Printf("warn: reload pinned packages after import: %v", err)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"extracted_files": extractedFiles,
-		"message":         fmt.Sprintf("Импортировано %d файлов", extractedFiles),
-	})
+	return extractedFiles, nil
 }

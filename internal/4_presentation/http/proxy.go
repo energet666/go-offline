@@ -1,10 +1,11 @@
-package main
+package httphandlers
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-offline/internal/1_domain/cache"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,12 +16,12 @@ import (
 	"time"
 )
 
-func (s *server) resolveVersion(ctx context.Context, modPath, requestedVersion string) (string, error) {
+func (s *Server) resolveVersion(ctx context.Context, modPath, requestedVersion string) (string, error) {
 	if requestedVersion != "" && requestedVersion != "latest" {
 		return requestedVersion, nil
 	}
 
-	escapedPath, err := escapeModulePath(modPath)
+	escapedPath, err := cache.EscapeModulePath(modPath)
 	if err != nil {
 		return "", err
 	}
@@ -41,12 +42,12 @@ func (s *server) resolveVersion(ctx context.Context, modPath, requestedVersion s
 	return latest.Version, nil
 }
 
-func (s *server) downloadModule(ctx context.Context, modPath, version string, logf func(string, ...any)) (bool, []byte, int64, error) {
-	escapedPath, err := escapeModulePath(modPath)
+func (s *Server) downloadModule(ctx context.Context, modPath, version string, logf func(string, ...any)) (bool, []byte, int64, error) {
+	escapedPath, err := cache.EscapeModulePath(modPath)
 	if err != nil {
 		return false, nil, 0, err
 	}
-	escapedVersion, err := escapeModuleVersion(version)
+	escapedVersion, err := cache.EscapeModuleVersion(version)
 	if err != nil {
 		return false, nil, 0, err
 	}
@@ -97,7 +98,7 @@ func (s *server) downloadModule(ctx context.Context, modPath, version string, lo
 	return true, modBody, total, nil
 }
 
-func (s *server) fetchRemote(ctx context.Context, rawURL string, logf func(string, ...any)) ([]byte, error) {
+func (s *Server) fetchRemote(ctx context.Context, rawURL string, logf func(string, ...any)) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt <= s.fetchRetries; attempt++ {
 		if attempt > 0 && logf != nil {
@@ -150,20 +151,20 @@ func (s *server) fetchRemote(ctx context.Context, rawURL string, logf func(strin
 // longest to shortest) until it finds one that the proxy recognises as a valid
 // module. If the path itself is already a valid module path it is returned
 // unchanged.
-func (s *server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
+func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
 	parts := strings.Split(pkgPath, "/")
 	// Try from longest to shortest prefix.
 	// We start at the full path and walk up to the root.
 	for i := len(parts); i >= 1; i-- {
 		candidate := strings.Join(parts[:i], "/")
-		escapedPath, err := escapeModulePath(candidate)
+		escapedPath, err := cache.EscapeModulePath(candidate)
 		if err != nil {
 			continue
 		}
 		var probeURL string
 		if version != "" && version != "latest" {
 			// Probe a specific version via /@v/<version>.info
-			escapedVer, err := escapeModuleVersion(version)
+			escapedVer, err := cache.EscapeModuleVersion(version)
 			if err != nil {
 				continue
 			}
@@ -191,8 +192,8 @@ func (s *server) resolveModulePath(ctx context.Context, pkgPath, version string)
 
 // resolveVersionFromCache finds the latest cached version of modPath by scanning
 // the proxy cache directory for .info files.
-func (s *server) resolveVersionFromCache(modPath string) (string, error) {
-	escapedPath, err := escapeModulePath(modPath)
+func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
+	escapedPath, err := cache.EscapeModulePath(modPath)
 	if err != nil {
 		return "", err
 	}
@@ -207,11 +208,11 @@ func (s *server) resolveVersionFromCache(modPath string) (string, error) {
 			continue
 		}
 		escapedVer := strings.TrimSuffix(ent.Name(), ".info")
-		ver, err := unescapeModuleVersion(escapedVer)
+		ver, err := cache.UnescapeModuleVersion(escapedVer)
 		if err != nil {
 			ver = escapedVer
 		}
-		if best == "" || compareModuleVersions(ver, best) > 0 {
+		if best == "" || cache.CompareModuleVersions(ver, best) > 0 {
 			best = ver
 		}
 	}
@@ -221,7 +222,7 @@ func (s *server) resolveVersionFromCache(modPath string) (string, error) {
 	return best, nil
 }
 
-func (s *server) proxyBaseDir() string {
+func (s *Server) proxyBaseDir() string {
 	newBase := filepath.Join(s.cacheDir, "gomodcache", "cache", "download")
 	if st, err := os.Stat(newBase); err == nil && st.IsDir() {
 		return newBase
@@ -229,7 +230,7 @@ func (s *server) proxyBaseDir() string {
 	return filepath.Join(s.workDir, "proxy")
 }
 
-func (s *server) updateVersionList(versionDir, version string) error {
+func (s *Server) updateVersionList(versionDir, version string) error {
 	listFile := filepath.Join(versionDir, "list")
 	set := map[string]struct{}{version: {}}
 	if data, err := os.ReadFile(listFile); err == nil {
@@ -252,7 +253,7 @@ func (s *server) updateVersionList(versionDir, version string) error {
 	return os.WriteFile(listFile, []byte(out), 0o644)
 }
 
-func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -289,7 +290,7 @@ func (s *server) serveProxyFile(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (s *server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, escapedModulePath string) bool {
+func (s *Server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, escapedModulePath string) bool {
 	type latestCandidate struct {
 		version string
 		body    []byte
@@ -310,7 +311,7 @@ func (s *server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 			}
 
 			escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
-			version, err := unescapeModuleVersion(escapedVersion)
+			version, err := cache.UnescapeModuleVersion(escapedVersion)
 			if err != nil {
 				version = escapedVersion
 			}
@@ -321,7 +322,7 @@ func (s *server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 				continue
 			}
 
-			if best == nil || compareModuleVersions(version, best.version) > 0 {
+			if best == nil || cache.CompareModuleVersions(version, best.version) > 0 {
 				best = &latestCandidate{
 					version: version,
 					body:    body,

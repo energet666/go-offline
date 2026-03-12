@@ -1,4 +1,4 @@
-package main
+package httphandlers
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func (s *server) logRequests(next http.Handler) http.Handler {
+func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -49,7 +49,7 @@ func isProxyRequestPath(path string) bool {
 	return path != "/" && !strings.HasPrefix(path, "/api/")
 }
 
-func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/":
 		data := map[string]string{
@@ -69,17 +69,17 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	default:
-		s.serveProxyFile(w, r)
+		s.ServeProxyFile(w, r)
 	}
 }
 
-func (s *server) handleModules(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleModules(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
-	rows, err := s.listCachedModules(r.URL.Query().Get("q"))
+	rows, err := s.cacheSvc.ListCachedModules(r.URL.Query().Get("q"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -87,7 +87,7 @@ func (s *server) handleModules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rows)
 }
 
-func (s *server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -116,27 +116,15 @@ func (s *server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		req.Module = resolvedModule
 	}
 
-	job := s.newJob("prefetch-module")
-	job.logf("start module=%s version=%s recursive=%t", req.Module, valueOr(req.Version, "latest"), req.Recursive)
-
-	// Record user-requested package before starting the job.
-	if err := s.pinPackage(req.Module, req.Version); err != nil {
-		log.Printf("warn: pin package: %v", err)
+	id, err := s.prefetchSvc.PrefetchModule(context.Background(), req.Module, req.Version, req.Recursive)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
 	}
-
-	go func() {
-		err := s.prefetchModuleWithGo(context.Background(), req.Module, req.Version, req.Recursive, job.logf)
-		if err != nil {
-			job.fail(err)
-			return
-		}
-		job.complete(prefetchReport{}, "done via go tool")
-	}()
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State})
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id})
 }
 
-func (s *server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -157,29 +145,26 @@ func (s *server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := s.newJob("prefetch-gomod")
-	job.logf("start requires=%d recursive=%t", len(requires), req.Recursive)
-
-	// Pin all packages from go.mod as user-requested.
+	var reqRequires []struct {
+		Path    string
+		Version string
+	}
 	for _, r := range requires {
-		if err := s.pinPackage(r.Path, r.Version); err != nil {
-			log.Printf("warn: pin package %s@%s: %v", r.Path, r.Version, err)
-		}
+		reqRequires = append(reqRequires, struct {
+			Path    string
+			Version string
+		}{Path: r.Path, Version: r.Version})
+	}
+	id, err := s.prefetchSvc.PrefetchGoMod(context.Background(), req.GoMod, req.Recursive, reqRequires)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
 	}
 
-	go func() {
-		err := s.prefetchGoModWithGo(context.Background(), req.GoMod, req.Recursive, job.logf)
-		if err != nil {
-			job.fail(err)
-			return
-		}
-		job.complete(prefetchReport{}, "done via go tool")
-	}()
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State})
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id})
 }
 
-func (s *server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -190,15 +175,15 @@ func (s *server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "job id is required"})
 		return
 	}
-	job, ok := s.getJob(id)
-	if !ok {
+	job, err := s.prefetchSvc.GetJob(id)
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
 		return
 	}
-	writeJSON(w, http.StatusOK, job.snapshot())
+	writeJSON(w, http.StatusOK, job.Snapshot())
 }
 
-func (s *server) handleProxyRequests(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProxyRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return

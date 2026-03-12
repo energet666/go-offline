@@ -1,4 +1,4 @@
-package main
+package cache
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func compareModuleVersions(a, b string) int {
+func CompareModuleVersions(a, b string) int {
 	pa, oka := parseModuleVersion(a)
 	pb, okb := parseModuleVersion(b)
 	if !oka || !okb {
@@ -127,11 +127,11 @@ func parseNumericIdentifier(s string) (int64, bool) {
 	return n, true
 }
 
-func escapeModulePath(s string) (string, error) {
+func EscapeModulePath(s string) (string, error) {
 	return escapeString(s, true)
 }
 
-func escapeModuleVersion(s string) (string, error) {
+func EscapeModuleVersion(s string) (string, error) {
 	return escapeString(s, false)
 }
 
@@ -161,11 +161,11 @@ func escapeString(s string, isPath bool) (string, error) {
 	return b.String(), nil
 }
 
-func unescapeModulePath(s string) (string, error) {
+func UnescapeModulePath(s string) (string, error) {
 	return unescapeString(s)
 }
 
-func unescapeModuleVersion(s string) (string, error) {
+func UnescapeModuleVersion(s string) (string, error) {
 	return unescapeString(s)
 }
 
