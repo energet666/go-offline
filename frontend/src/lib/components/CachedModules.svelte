@@ -95,7 +95,7 @@
                 >
             </div>
             <div
-                class="overflow-visible rounded-xl border border-primary/20 bg-primary/5 mb-4"
+                class="overflow-visible rounded-xl border border-primary/20 bg-primary/5 mb-4 [&_thead_th:first-child]:rounded-tl-[11px] [&_thead_th:last-child]:rounded-tr-[11px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[11px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[11px]"
             >
                 <table class="table table-sm w-full">
                     <thead class="bg-primary/10 text-base-content/80">
@@ -204,7 +204,7 @@
                 >
             </div>
             <div
-                class="overflow-visible rounded-xl border border-base-content/5 bg-base-200/30"
+                class="overflow-visible rounded-xl border border-base-content/5 bg-base-200/30 [&_thead_th:first-child]:rounded-tl-[11px] [&_thead_th:last-child]:rounded-tr-[11px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[11px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[11px]"
             >
                 <table class="table table-sm w-full">
                     <thead class="bg-base-300/50 text-base-content/80">
