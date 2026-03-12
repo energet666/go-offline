@@ -169,8 +169,6 @@
 		Локальный GOPROXY + prefetch зависимостей для офлайн-среды.
 	</p>
 
-	<ProxyInstructions {proxyUrl} />
-
 	<div class="mb-6">
 		<button
 			class="mb-3 flex items-center gap-2 cursor-pointer select-none group"
@@ -193,6 +191,8 @@
 			</div>
 		{/if}
 	</div>
+
+	<ProxyInstructions {proxyUrl} />
 
 	<ProxyConsole />
 
