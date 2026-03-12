@@ -2,4 +2,4 @@ module go-offline
 
 go 1.25.0
 
-require golang.org/x/mod v0.34.0 // indirect
+require golang.org/x/mod v0.34.0

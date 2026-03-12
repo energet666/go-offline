@@ -1,5 +1,6 @@
 .DS_Store
 /cache
+!/cache/go.mod
 /workdir
 /go-offline
 /bin
