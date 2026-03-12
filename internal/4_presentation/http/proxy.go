@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go-offline/internal/1_domain/cache"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +13,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 func (s *Server) resolveVersion(ctx context.Context, modPath, requestedVersion string) (string, error) {
@@ -21,7 +23,7 @@ func (s *Server) resolveVersion(ctx context.Context, modPath, requestedVersion s
 		return requestedVersion, nil
 	}
 
-	escapedPath, err := cache.EscapeModulePath(modPath)
+	escapedPath, err := module.EscapePath(modPath)
 	if err != nil {
 		return "", err
 	}
@@ -43,11 +45,11 @@ func (s *Server) resolveVersion(ctx context.Context, modPath, requestedVersion s
 }
 
 func (s *Server) downloadModule(ctx context.Context, modPath, version string, logf func(string, ...any)) (bool, []byte, int64, error) {
-	escapedPath, err := cache.EscapeModulePath(modPath)
+	escapedPath, err := module.EscapePath(modPath)
 	if err != nil {
 		return false, nil, 0, err
 	}
-	escapedVersion, err := cache.EscapeModuleVersion(version)
+	escapedVersion, err := module.EscapeVersion(version)
 	if err != nil {
 		return false, nil, 0, err
 	}
@@ -157,14 +159,14 @@ func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string)
 	// We start at the full path and walk up to the root.
 	for i := len(parts); i >= 1; i-- {
 		candidate := strings.Join(parts[:i], "/")
-		escapedPath, err := cache.EscapeModulePath(candidate)
+		escapedPath, err := module.EscapePath(candidate)
 		if err != nil {
 			continue
 		}
 		var probeURL string
 		if version != "" && version != "latest" {
 			// Probe a specific version via /@v/<version>.info
-			escapedVer, err := cache.EscapeModuleVersion(version)
+			escapedVer, err := module.EscapeVersion(version)
 			if err != nil {
 				continue
 			}
@@ -193,7 +195,7 @@ func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string)
 // resolveVersionFromCache finds the latest cached version of modPath by scanning
 // the proxy cache directory for .info files.
 func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
-	escapedPath, err := cache.EscapeModulePath(modPath)
+	escapedPath, err := module.EscapePath(modPath)
 	if err != nil {
 		return "", err
 	}
@@ -208,11 +210,11 @@ func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
 			continue
 		}
 		escapedVer := strings.TrimSuffix(ent.Name(), ".info")
-		ver, err := cache.UnescapeModuleVersion(escapedVer)
+		ver, err := module.UnescapeVersion(escapedVer)
 		if err != nil {
 			ver = escapedVer
 		}
-		if best == "" || cache.CompareModuleVersions(ver, best) > 0 {
+		if best == "" || semver.Compare(ver, best) > 0 {
 			best = ver
 		}
 	}
@@ -311,7 +313,7 @@ func (s *Server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 			}
 
 			escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
-			version, err := cache.UnescapeModuleVersion(escapedVersion)
+			version, err := module.UnescapeVersion(escapedVersion)
 			if err != nil {
 				version = escapedVersion
 			}
@@ -322,7 +324,7 @@ func (s *Server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 				continue
 			}
 
-			if best == nil || cache.CompareModuleVersions(version, best.version) > 0 {
+			if best == nil || semver.Compare(version, best.version) > 0 {
 				best = &latestCandidate{
 					version: version,
 					body:    body,

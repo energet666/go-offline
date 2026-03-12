@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"go-offline/internal/1_domain/cache"
+
+	"golang.org/x/mod/module"
 )
 
 type cacheRepository struct {
@@ -76,13 +78,13 @@ func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
 		}
 
 		escapedMod := strings.Join(parts[:len(parts)-2], "/")
-		modPath, err := cache.UnescapeModulePath(escapedMod)
+		modPath, err := module.UnescapePath(escapedMod)
 		if err != nil {
 			modPath = escapedMod
 		}
 
 		escapedVer := strings.TrimSuffix(parts[len(parts)-1], ".info")
-		ver, err := cache.UnescapeModuleVersion(escapedVer)
+		ver, err := module.UnescapeVersion(escapedVer)
 		if err != nil {
 			ver = escapedVer
 		}

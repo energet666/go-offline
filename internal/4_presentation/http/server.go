@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"go-offline/internal/2_application"
 	"go-offline/internal/1_domain/cache"
 	"go-offline/internal/1_domain/prefetch"
+	"go-offline/internal/2_application"
 )
 
 type Server struct {
