@@ -132,6 +132,13 @@
 										>
 											<Archive size={14} />
 										</div>
+									{:else}
+										<div
+											class="inline-flex items-center justify-center text-secondary opacity-70 tooltip"
+											data-tip="Новый (не экспортирован)"
+										>
+											<div class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse shadow-[0_0_5px_rgba(var(--s),0.5)]"></div>
+										</div>
 									{/if}
 								</td>
 								<td class="break-all font-medium opacity-90">
@@ -237,6 +244,15 @@
 												data-tip="Экспортировано"
 											>
 												<Archive size={14} />
+											</div>
+										{:else}
+											<div
+												class="inline-flex items-center justify-center text-secondary opacity-70 tooltip"
+												data-tip="Новый (не экспортирован)"
+											>
+												<div
+													class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse shadow-[0_0_5px_rgba(var(--s),0.5)]"
+												></div>
 											</div>
 										{/if}
 									</td>

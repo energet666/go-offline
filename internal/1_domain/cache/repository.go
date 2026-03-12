@@ -9,8 +9,9 @@ var ErrNoNewFiles = errors.New("no new files to export")
 
 // CacheRepository abstracts file system operations for the module cache
 type CacheRepository interface {
-	// ListCached возвращает список закешированных модулей, отфильтрованный по запросу query
-	ListCached(query string) ([]Module, error)
+	// ListCached возвращает список закешированных модулей, отфильтрованный по запросу query,
+	// и общее количество неэкспортированных модулей (без учета фильтра)
+	ListCached(query string) ([]Module, int, error)
 	// Export экспортирует закешированные модули в архив и записывает его в w (если incremental=true, экспортируются только новые)
 	Export(w io.Writer, incremental bool) error
 	// Import импортирует модули из архива r в кэш и возвращает количество импортированных модулей

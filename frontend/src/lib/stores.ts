@@ -23,6 +23,7 @@ export interface CachedModule {
 }
 
 export const modulesStore = writable<CachedModule[]>([]);
+export const unexportedCountStore = writable(0);
 export const modulesQueryStore = writable("");
 
 export async function loadModules(query?: string) {
@@ -30,7 +31,13 @@ export async function loadModules(query?: string) {
 		const q = (query ?? get(modulesQueryStore)).trim();
 		const url = q ? `/api/modules?q=${encodeURIComponent(q)}` : "/api/modules";
 		const data = await fetchJSON(url);
-		modulesStore.set(data);
+		if (data && typeof data === "object" && "modules" in data) {
+			modulesStore.set(data.modules);
+			unexportedCountStore.set(data.unexported_count || 0);
+		} else {
+			// Fallback for old API if needed (though we just updated it)
+			modulesStore.set(data);
+		}
 	} catch (err) {
 		console.error("Failed to load modules", err);
 	}

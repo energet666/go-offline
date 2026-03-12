@@ -22,10 +22,10 @@ func NewCacheService(cacheRepo cache.CacheRepository, pinnedRepo cache.PinnedRep
 	}
 }
 
-func (s *CacheService) ListCachedModules(query string) ([]cache.Module, error) {
-	out, err := s.cacheRepo.ListCached(query)
+func (s *CacheService) ListCachedModules(query string) ([]cache.Module, int, error) {
+	out, unexportedCount, err := s.cacheRepo.ListCached(query)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	for i := range out {
@@ -42,7 +42,7 @@ func (s *CacheService) ListCachedModules(query string) ([]cache.Module, error) {
 		}
 		return out[i].Module < out[j].Module
 	})
-	return out, nil
+	return out, unexportedCount, nil
 }
 
 // ExportFilename returns a descriptive archive filename for the given export kind.

@@ -41,9 +41,10 @@ func (r *cacheRepository) proxyBaseDir() string {
 	return filepath.Join(r.workDir, "proxy")
 }
 
-func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
+func (r *cacheRepository) ListCached(query string) ([]cache.Module, int, error) {
 	base := r.proxyBaseDir()
 	out := make([]cache.Module, 0, 128)
+	totalUnexported := 0
 	query = strings.ToLower(strings.TrimSpace(query))
 
 	exportStatePath := filepath.Join(r.cacheDir, ".export-state.json")
@@ -104,6 +105,9 @@ func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
 			Exported: exportedPaths[relFromCache],
 			// Pinned flag will be populated by the application service
 		}
+		if !row.Exported {
+			totalUnexported++
+		}
 		if !info.Time.IsZero() {
 			row.Time = info.Time.Format(time.RFC3339)
 		}
@@ -118,7 +122,7 @@ func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Default sort; application service will re-sort specifically for pinned modules
@@ -128,7 +132,7 @@ func (r *cacheRepository) ListCached(query string) ([]cache.Module, error) {
 		}
 		return out[i].Module < out[j].Module
 	})
-	return out, nil
+	return out, totalUnexported, nil
 }
 
 func (r *cacheRepository) Export(w io.Writer, incremental bool) error {

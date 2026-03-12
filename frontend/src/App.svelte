@@ -6,7 +6,7 @@
 	import ProxyConsole from "./lib/components/ProxyConsole.svelte";
 	import CachedModules from "./lib/components/CachedModules.svelte";
 	import Toast from "./lib/components/Toast.svelte";
-	import { showToastMessage, loadModules } from "./lib/stores";
+	import { showToastMessage, loadModules, unexportedCountStore } from "./lib/stores";
 
 	// Работаем по порту 5173 для локальной разработки во время использования Vite,
 	// в противном случае берём текущий origin где развёрнут Go-сервер.
@@ -152,7 +152,10 @@
 					class="btn btn-outline btn-secondary btn-sm join-item gap-2"
 					onclick={() => exportCache(true)}
 					disabled={exportingFull || exportingInc}
-					title="Экспортировать только пакеты, добавленные с прошлого экспорта"
+					title={$unexportedCountStore > 0 
+						? `Экспортировать только новые пакеты (${$unexportedCountStore})` 
+						: "Экспортировать только пакеты, добавленные с прошлого экспорта"
+					}
 				>
 					{#if exportingInc}
 						<Loader2 size={16} class="animate-spin" />
@@ -160,6 +163,11 @@
 					{:else}
 						<Download size={16} />
 						Новые
+						{#if $unexportedCountStore > 0}
+							<div class="badge badge-sm badge-secondary animate-pulse px-1.5 ml-1">
+								{$unexportedCountStore}
+							</div>
+						{/if}
 					{/if}
 				</button>
 			</div>

@@ -84,12 +84,15 @@ func (s *Server) handleModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.cacheSvc.ListCachedModules(r.URL.Query().Get("q"))
+	rows, unexportedCount, err := s.cacheSvc.ListCachedModules(r.URL.Query().Get("q"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, rows)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"modules":          rows,
+		"unexported_count": unexportedCount,
+	})
 }
 
 func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
