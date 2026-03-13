@@ -23,6 +23,16 @@ type downloadState struct {
 	FinishedAt string   `json:"finished_at,omitempty"`
 }
 
+// downloadSnapshot is a mutex-free copy of downloadState for JSON serialization.
+type downloadSnapshot struct {
+	Status     string   `json:"status"`
+	Error      string   `json:"error,omitempty"`
+	Message    string   `json:"message,omitempty"`
+	Logs       []string `json:"logs"`
+	StartedAt  string   `json:"started_at,omitempty"`
+	FinishedAt string   `json:"finished_at,omitempty"`
+}
+
 func (ds *downloadState) logf(format string, args ...any) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
@@ -33,10 +43,10 @@ func (ds *downloadState) logf(format string, args ...any) {
 	}
 }
 
-func (ds *downloadState) snapshot() downloadState {
+func (ds *downloadState) snapshot() downloadSnapshot {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-	return downloadState{
+	return downloadSnapshot{
 		Status:     ds.Status,
 		Error:      ds.Error,
 		Message:    ds.Message,
@@ -47,22 +57,17 @@ func (ds *downloadState) snapshot() downloadState {
 }
 
 type Server struct {
-	cacheDir     string
-	workDir      string
-	upstream     string
-	httpClient   *http.Client
-	fetchRetries int
-	retryBackoff time.Duration
-	goBin        string
-	maxJobBytes  int64
-	maxModules   int64
-	downloader   *gotool.Downloader
-	cacheSvc     *application.CacheService
-	pinnedRepo   cache.PinnedRepository
-	proxyLogsMu  sync.Mutex
-	proxyLogs    []string
-	proxyLogSeq  uint64
-	dlState      downloadState
+	cacheDir    string
+	workDir     string
+	upstream    string
+	httpClient  *http.Client
+	downloader  *gotool.Downloader
+	cacheSvc    *application.CacheService
+	pinnedRepo  cache.PinnedRepository
+	proxyLogsMu sync.Mutex
+	proxyLogs   []string
+	proxyLogSeq uint64
+	dlState     downloadState
 }
 
 type prefetchRequest struct {
@@ -81,42 +86,25 @@ type modReq struct {
 	Version string
 }
 
-type fetchBudget struct {
-	maxBytes   int64
-	maxModules int64
-	bytes      int64
-	modules    int64
-}
-
 type ServerConfig struct {
-	CacheDir     string
-	WorkDir      string
-	Upstream     string
-	HttpClient   *http.Client
-	FetchRetries int
-	RetryBackoff time.Duration
-	GoBin        string
-	MaxJobBytes  int64
-	MaxModules   int64
-	Downloader   *gotool.Downloader
-	CacheSvc     *application.CacheService
-	PinnedRepo   cache.PinnedRepository
+	CacheDir   string
+	WorkDir    string
+	Upstream   string
+	HttpClient *http.Client
+	Downloader *gotool.Downloader
+	CacheSvc   *application.CacheService
+	PinnedRepo cache.PinnedRepository
 }
 
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		cacheDir:     cfg.CacheDir,
-		workDir:      cfg.WorkDir,
-		upstream:     cfg.Upstream,
-		httpClient:   cfg.HttpClient,
-		fetchRetries: cfg.FetchRetries,
-		retryBackoff: cfg.RetryBackoff,
-		goBin:        cfg.GoBin,
-		maxJobBytes:  cfg.MaxJobBytes,
-		maxModules:   cfg.MaxModules,
-		downloader:   cfg.Downloader,
-		cacheSvc:     cfg.CacheSvc,
-		pinnedRepo:   cfg.PinnedRepo,
+		cacheDir:   cfg.CacheDir,
+		workDir:    cfg.WorkDir,
+		upstream:   cfg.Upstream,
+		httpClient: cfg.HttpClient,
+		downloader: cfg.Downloader,
+		cacheSvc:   cfg.CacheSvc,
+		pinnedRepo: cfg.PinnedRepo,
 		dlState: downloadState{
 			Status: "idle",
 			Logs:   make([]string, 0),

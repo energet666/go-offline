@@ -17,15 +17,12 @@ import (
 
 func main() {
 	var (
-		listen       = flag.String("listen", ":8080", "HTTP listen address")
-		cacheDir     = flag.String("cache", "./cache", "cache directory (persistent, for export/import)")
-		workDir      = flag.String("workdir", "./workdir", "working directory (ephemeral: gocache, proxy, tmp)")
-		upstream     = flag.String("upstream", "https://proxy.golang.org", "upstream GOPROXY")
-		httpTimeout  = flag.Duration("http-timeout", 5*time.Minute, "HTTP timeout for upstream requests")
-		fetchRetries = flag.Int("fetch-retries", 3, "retries for timeout/429/5xx upstream errors")
-		maxJobBytes  = flag.Int64("max-job-bytes", 2*1024*1024*1024, "max downloaded bytes per download (0 disables)")
-		maxModules   = flag.Int64("max-job-modules", 4000, "max processed modules per download (0 disables)")
-		goBin        = flag.String("go-bin", "go", "path to go binary")
+		listen      = flag.String("listen", ":8080", "HTTP listen address")
+		cacheDir    = flag.String("cache", "./cache", "cache directory (persistent, for export/import)")
+		workDir     = flag.String("workdir", "./workdir", "working directory (ephemeral: gocache, proxy, tmp)")
+		upstream    = flag.String("upstream", "https://proxy.golang.org", "upstream GOPROXY")
+		httpTimeout = flag.Duration("http-timeout", 5*time.Minute, "HTTP timeout for upstream requests")
+		goBin       = flag.String("go-bin", "go", "path to go binary")
 	)
 	flag.Parse()
 
@@ -63,18 +60,13 @@ func main() {
 	cacheSvc := application.NewCacheService(cacheRepo, pinnedRepo)
 
 	srv := httphandlers.NewServer(httphandlers.ServerConfig{
-		CacheDir:     *cacheDir,
-		WorkDir:      *workDir,
-		Upstream:     strings.TrimRight(*upstream, "/"),
-		HttpClient:   &http.Client{Timeout: *httpTimeout},
-		FetchRetries: *fetchRetries,
-		RetryBackoff: 2 * time.Second,
-		GoBin:        *goBin,
-		MaxJobBytes:  *maxJobBytes,
-		MaxModules:   *maxModules,
-		Downloader:   downloader,
-		CacheSvc:     cacheSvc,
-		PinnedRepo:   pinnedRepo,
+		CacheDir:   *cacheDir,
+		WorkDir:    *workDir,
+		Upstream:   strings.TrimRight(*upstream, "/"),
+		HttpClient: &http.Client{Timeout: *httpTimeout},
+		Downloader: downloader,
+		CacheSvc:   cacheSvc,
+		PinnedRepo: pinnedRepo,
 	})
 
 	mux := http.NewServeMux()
@@ -83,8 +75,7 @@ func main() {
 	log.Printf("go-offline started on %s", *listen)
 	log.Printf("cache directory: %s", *cacheDir)
 	log.Printf("work directory: %s", *workDir)
-	log.Printf("upstream timeout: %s retries: %d", (*httpTimeout).String(), *fetchRetries)
-	log.Printf("download limits: max-bytes=%d max-modules=%d", *maxJobBytes, *maxModules)
+	log.Printf("upstream timeout: %s", (*httpTimeout).String())
 	log.Printf("go binary: %s", *goBin)
 	log.Printf("set GOPROXY=http://127.0.0.1%s", *listen)
 

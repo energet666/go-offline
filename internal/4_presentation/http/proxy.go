@@ -2,10 +2,7 @@ package httphandlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,135 +15,6 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-func (s *Server) resolveVersion(ctx context.Context, modPath, requestedVersion string) (string, error) {
-	if requestedVersion != "" && requestedVersion != "latest" {
-		return requestedVersion, nil
-	}
-
-	escapedPath, err := module.EscapePath(modPath)
-	if err != nil {
-		return "", err
-	}
-	u := s.upstream + "/" + escapedPath + "/@latest"
-	body, err := s.fetchRemote(ctx, u, nil)
-	if err != nil {
-		return "", err
-	}
-	var latest struct {
-		Version string `json:"Version"`
-	}
-	if err := json.Unmarshal(body, &latest); err != nil {
-		return "", err
-	}
-	if latest.Version == "" {
-		return "", errors.New("empty latest version")
-	}
-	return latest.Version, nil
-}
-
-func (s *Server) downloadModule(ctx context.Context, modPath, version string, logf func(string, ...any)) (bool, []byte, int64, error) {
-	escapedPath, err := module.EscapePath(modPath)
-	if err != nil {
-		return false, nil, 0, err
-	}
-	escapedVersion, err := module.EscapeVersion(version)
-	if err != nil {
-		return false, nil, 0, err
-	}
-
-	dir := filepath.Join(s.workDir, "proxy", filepath.FromSlash(escapedPath), "@v")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, nil, 0, err
-	}
-	modFile := filepath.Join(dir, escapedVersion+".mod")
-	if _, err := os.Stat(modFile); err == nil {
-		content, readErr := os.ReadFile(modFile)
-		return false, content, 0, readErr
-	}
-
-	infoURL := s.upstream + "/" + escapedPath + "/@v/" + escapedVersion + ".info"
-	modURL := s.upstream + "/" + escapedPath + "/@v/" + escapedVersion + ".mod"
-	zipURL := s.upstream + "/" + escapedPath + "/@v/" + escapedVersion + ".zip"
-
-	infoBody, err := s.fetchRemote(ctx, infoURL, logf)
-	if err != nil {
-		return false, nil, 0, err
-	}
-	logf("fetched info %s@%s", modPath, version)
-	modBody, err := s.fetchRemote(ctx, modURL, logf)
-	if err != nil {
-		return false, nil, 0, err
-	}
-	logf("fetched mod %s@%s", modPath, version)
-	zipBody, err := s.fetchRemote(ctx, zipURL, logf)
-	if err != nil {
-		return false, nil, 0, err
-	}
-	logf("fetched zip %s@%s", modPath, version)
-
-	if err := os.WriteFile(filepath.Join(dir, escapedVersion+".info"), infoBody, 0o644); err != nil {
-		return false, nil, 0, err
-	}
-	if err := os.WriteFile(modFile, modBody, 0o644); err != nil {
-		return false, nil, 0, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, escapedVersion+".zip"), zipBody, 0o644); err != nil {
-		return false, nil, 0, err
-	}
-	if err := s.updateVersionList(dir, version); err != nil {
-		return false, nil, 0, err
-	}
-	total := int64(len(infoBody) + len(modBody) + len(zipBody))
-	return true, modBody, total, nil
-}
-
-func (s *Server) fetchRemote(ctx context.Context, rawURL string, logf func(string, ...any)) ([]byte, error) {
-	var lastErr error
-	for attempt := 0; attempt <= s.fetchRetries; attempt++ {
-		if attempt > 0 && logf != nil {
-			logf("retry %d/%d for %s", attempt, s.fetchRetries, rawURL)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := s.httpClient.Do(req)
-		if err != nil {
-			lastErr = err
-			if attempt < s.fetchRetries && isRetryableError(err) {
-				time.Sleep(s.retryBackoff * time.Duration(attempt+1))
-				continue
-			}
-			return nil, err
-		}
-
-		body, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if readErr != nil {
-			lastErr = readErr
-			if attempt < s.fetchRetries && isRetryableError(readErr) {
-				time.Sleep(s.retryBackoff * time.Duration(attempt+1))
-				continue
-			}
-			return nil, readErr
-		}
-		if resp.StatusCode != http.StatusOK {
-			msg := fmt.Errorf("upstream %s: %s (%s)", rawURL, resp.Status, strings.TrimSpace(string(limitBytes(body, 2048))))
-			lastErr = msg
-			if attempt < s.fetchRetries && isRetryableStatus(resp.StatusCode) {
-				time.Sleep(s.retryBackoff * time.Duration(attempt+1))
-				continue
-			}
-			return nil, msg
-		}
-		return body, nil
-	}
-	if lastErr == nil {
-		lastErr = errors.New("upstream request failed")
-	}
-	return nil, lastErr
-}
 
 // resolveModulePath resolves a package path to the root module path by probing
 // the upstream GOPROXY. It tries successively shorter path prefixes (from
