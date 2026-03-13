@@ -1,62 +1,62 @@
 .PHONY: all build build-frontend build-backend run clean tidy test help
 
-# Название выходного бинарного файла и папка для него
+# Binary name and output directory
 APP_NAME = go-offline
 BIN_DIR = bin
 FRONTEND_DIR = frontend
-# Путь, куда Vite складывает билд (согласно vite.config.ts)
+# Path where Vite puts the build (according to vite.config.ts)
 WEB_DIST_DIR = internal/4_presentation/http/web
 
 all: build
 
-# 1. Сборка фронтенда
-# Install запускается только если нет node_modules, чтобы ускорить повторные билды
+# 1. Build frontend
+# Install is only run if node_modules doesn't exist to speed up rebuilds
 build-frontend:
-	@echo "=> Сборка фронтенда..."
+	@echo "=> Building frontend..."
 	cd $(FRONTEND_DIR) && [ -d node_modules ] || npm install
 	cd $(FRONTEND_DIR) && npm run build
 
-# 2. Сборка бэкенда (Go)
+# 2. Build backend (Go)
 build-backend:
-	@echo "=> Сборка бэкенда..."
+	@echo "=> Building backend..."
 	go build -o $(BIN_DIR)/$(APP_NAME) ./cmd/go-offline
 
-# Полный билд (фронтенд обязательно ПЕРЕД бэкендом из-за embed)
+# Full build (frontend MUST be before backend due to embed)
 build: build-frontend build-backend
-	@echo "=> Сборка успешно завершена! Бинарный файл: ./$(BIN_DIR)/$(APP_NAME)"
+	@echo "=> Build successful! Binary: ./$(BIN_DIR)/$(APP_NAME)"
 
-# Запуск приложения
+# Run the application
 run: build
-	@echo "=> Запуск приложения..."
+	@echo "=> Starting application..."
 	./$(BIN_DIR)/$(APP_NAME)
 
-# Запуск тестов Go
+# Run Go tests
 test:
-	@echo "=> Запуск тестов..."
+	@echo "=> Running tests..."
 	go test ./...
 
-# Обновление зависимостей Go
+# Update Go dependencies
 tidy:
-	@echo "=> Очистка Go модулей..."
+	@echo "=> Tidying Go modules..."
 	go mod tidy
 
-# Очистка артефактов сборки
+# Clean build artifacts
 clean:
-	@echo "=> Очистка..."
+	@echo "=> Cleaning..."
 	rm -rf $(BIN_DIR)
 	rm -rf $(WEB_DIST_DIR)/*
-	@echo "Готово. node_modules не тронуты (используйте 'make clean-all' для полной очистки)."
+	@echo "Done. node_modules preserved (use 'make clean-all' for full cleanup)."
 
-# Полная очистка, включая зависимости фронтенда
+# Full cleanup including frontend dependencies
 clean-all: clean
-	@echo "=> Удаление зависимостей фронтенда..."
+	@echo "=> Removing frontend dependencies..."
 	rm -rf $(FRONTEND_DIR)/node_modules
 
 help:
-	@echo "Доступные команды:"
-	@echo "  make build          - Полная сборка (фронт + бэк)"
-	@echo "  make run            - Сборка и запуск"
-	@echo "  make test           - Запуск всех тестов"
-	@echo "  make tidy           - go mod tidy"
-	@echo "  make clean          - Удаление бинарников и билда фронтенда"
-	@echo "  make clean-all      - Очистка всего, включая node_modules"
+	@echo "Available commands:"
+	@echo "  make build          - Full build (front + back)"
+	@echo "  make run            - Build and run"
+	@echo "  make test           - Run all tests"
+	@echo "  make tidy           - Run go mod tidy"
+	@echo "  make clean          - Remove binaries and frontend build"
+	@echo "  make clean-all      - Remove everything including node_modules"
