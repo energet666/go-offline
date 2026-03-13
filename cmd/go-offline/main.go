@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	application "go-offline/internal/2_application"
 	"go-offline/internal/3_infrastructure/fs_cache"
 	"go-offline/internal/3_infrastructure/gotool"
 	httphandlers "go-offline/internal/4_presentation/http"
@@ -19,7 +18,7 @@ func main() {
 	var (
 		listen      = flag.String("listen", ":8080", "HTTP listen address")
 		cacheDir    = flag.String("cache", "./cache", "cache directory (persistent, for export/import)")
-		workDir     = flag.String("workdir", "./workdir", "working directory (ephemeral: gocache, proxy, tmp)")
+		workDir     = flag.String("workdir", "./workdir", "working directory (ephemeral: gocache, tmp)")
 		upstream    = flag.String("upstream", "https://proxy.golang.org", "upstream GOPROXY")
 		httpTimeout = flag.Duration("http-timeout", 5*time.Minute, "HTTP timeout for upstream requests")
 		goBin       = flag.String("go-bin", "go", "path to go binary")
@@ -41,9 +40,6 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(*cacheDir, "gomodcache", "cache", "download"), 0o755); err != nil {
 		log.Fatalf("create gomodcache dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(*workDir, "proxy"), 0o755); err != nil {
-		log.Fatalf("create proxy dir: %v", err)
-	}
 	if err := os.MkdirAll(filepath.Join(*workDir, "gocache"), 0o755); err != nil {
 		log.Fatalf("create gocache dir: %v", err)
 	}
@@ -57,15 +53,13 @@ func main() {
 		log.Printf("warn: failed to initialize pinned packages: %v", err)
 	}
 	cacheRepo := fs_cache.NewCacheRepository(*cacheDir, *workDir)
-	cacheSvc := application.NewCacheService(cacheRepo, pinnedRepo)
 
 	srv := httphandlers.NewServer(httphandlers.ServerConfig{
 		CacheDir:   *cacheDir,
-		WorkDir:    *workDir,
 		Upstream:   strings.TrimRight(*upstream, "/"),
 		HttpClient: &http.Client{Timeout: *httpTimeout},
 		Downloader: downloader,
-		CacheSvc:   cacheSvc,
+		CacheRepo:  cacheRepo,
 		PinnedRepo: pinnedRepo,
 	})
 

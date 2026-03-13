@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchJSON, watchDownload } from "../utils";
+	import { cancelDownload, fetchJSON, watchDownload } from "../utils";
 	import { loadModules } from "../stores";
 
 	let moduleInput = $state("");
@@ -81,6 +81,12 @@
 				class="btn btn-primary shadow-lg shadow-primary/20"
 				onclick={startPrefetch}>Скачать</button
 			>
+			{#if prefetchStatus.includes("[running]")}
+				<button
+					class="btn btn-error btn-outline shadow-lg shadow-error/20"
+					onclick={cancelDownload}>Отмена</button
+				>
+			{/if}
 			<span class="text-sm opacity-60 ml-2">{prefetchStatus}</span>
 		</div>
 		<div

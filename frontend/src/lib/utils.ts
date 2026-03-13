@@ -27,6 +27,10 @@ export async function fetchJSON(url: string, options?: RequestInit) {
 	return data;
 }
 
+export async function cancelDownload() {
+	return fetchJSON("/api/download-cancel", { method: "POST" });
+}
+
 export async function watchDownload(
 	onStatus: (status: string) => void,
 	onLog: (logs: string[]) => void,

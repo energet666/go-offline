@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"go-offline/internal/1_domain/cache"
-	application "go-offline/internal/2_application"
 	"go-offline/internal/3_infrastructure/gotool"
 )
 
 // downloadState tracks the current background download operation.
 type downloadState struct {
 	mu         sync.Mutex
+	cancel     context.CancelFunc
 	Status     string   `json:"status"` // "idle", "running", "done", "error"
 	Error      string   `json:"error,omitempty"`
 	Message    string   `json:"message,omitempty"`
@@ -58,11 +58,10 @@ func (ds *downloadState) snapshot() downloadSnapshot {
 
 type Server struct {
 	cacheDir    string
-	workDir     string
 	upstream    string
 	httpClient  *http.Client
 	downloader  *gotool.Downloader
-	cacheSvc    *application.CacheService
+	cacheRepo   cache.CacheRepository
 	pinnedRepo  cache.PinnedRepository
 	proxyLogsMu sync.Mutex
 	proxyLogs   []string
@@ -88,22 +87,20 @@ type modReq struct {
 
 type ServerConfig struct {
 	CacheDir   string
-	WorkDir    string
 	Upstream   string
 	HttpClient *http.Client
 	Downloader *gotool.Downloader
-	CacheSvc   *application.CacheService
+	CacheRepo  cache.CacheRepository
 	PinnedRepo cache.PinnedRepository
 }
 
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
 		cacheDir:   cfg.CacheDir,
-		workDir:    cfg.WorkDir,
 		upstream:   cfg.Upstream,
 		httpClient: cfg.HttpClient,
 		downloader: cfg.Downloader,
-		cacheSvc:   cfg.CacheSvc,
+		cacheRepo:  cfg.CacheRepo,
 		pinnedRepo: cfg.PinnedRepo,
 		dlState: downloadState{
 			Status: "idle",
@@ -118,21 +115,19 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/prefetch", s.handlePrefetch)
 	mux.HandleFunc("/api/prefetch-gomod", s.handlePrefetchGoMod)
 	mux.HandleFunc("/api/download-status", s.handleDownloadStatus)
+	mux.HandleFunc("/api/download-cancel", s.handleDownloadCancel)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
 	mux.HandleFunc("/api/export-cache", s.handleExportCache)
 	mux.HandleFunc("/api/import-cache", s.handleImportCache)
 }
 
-func (s *Server) ResolveVersionFromCache(modPath string) (string, error) {
-	return s.resolveVersionFromCache(modPath)
-}
-
-func (s *Server) ResolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
-	return s.resolveModulePath(ctx, pkgPath, version)
-}
-
-// Handler returns the HTTP handler with logging middleware
+// Handler returns the HTTP handler with logging middleware.
 func (s *Server) Handler(mux *http.ServeMux) http.Handler {
 	return s.logRequests(mux)
+}
+
+// proxyBaseDir returns the directory containing cached module files for proxy serving.
+func (s *Server) proxyBaseDir() string {
+	return s.cacheRepo.ProxyBaseDir()
 }

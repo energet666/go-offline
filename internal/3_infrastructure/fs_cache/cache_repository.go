@@ -33,7 +33,7 @@ func NewCacheRepository(cacheDir, workDir string) cache.CacheRepository {
 	}
 }
 
-func (r *cacheRepository) proxyBaseDir() string {
+func (r *cacheRepository) ProxyBaseDir() string {
 	newBase := filepath.Join(r.cacheDir, "gomodcache", "cache", "download")
 	if st, err := os.Stat(newBase); err == nil && st.IsDir() {
 		return newBase
@@ -42,7 +42,7 @@ func (r *cacheRepository) proxyBaseDir() string {
 }
 
 func (r *cacheRepository) ListCached(query string) ([]cache.Module, int, error) {
-	base := r.proxyBaseDir()
+	base := r.ProxyBaseDir()
 	out := make([]cache.Module, 0, 128)
 	totalUnexported := 0
 	query = strings.ToLower(strings.TrimSpace(query))

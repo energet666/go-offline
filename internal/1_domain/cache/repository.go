@@ -16,6 +16,8 @@ type CacheRepository interface {
 	Export(w io.Writer, incremental bool) error
 	// Import импортирует модули из архива r в кэш и возвращает количество импортированных модулей
 	Import(r io.Reader) (int, error)
+	// ProxyBaseDir возвращает путь к директории с закешированными файлами модулей для проксирования
+	ProxyBaseDir() string
 }
 
 // PinnedRepository abstracts operations for user-pinned modules

@@ -3,11 +3,13 @@ package httphandlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -84,11 +86,26 @@ func (s *Server) handleModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, unexportedCount, err := s.cacheSvc.ListCachedModules(r.URL.Query().Get("q"))
+	rows, unexportedCount, err := s.cacheRepo.ListCached(r.URL.Query().Get("q"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Mark pinned modules and sort: pinned first, then alphabetical.
+	for i := range rows {
+		rows[i].Pinned = s.pinnedRepo.IsPinned(rows[i].Module, rows[i].Version)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Pinned != rows[j].Pinned {
+			return rows[i].Pinned
+		}
+		if rows[i].Module == rows[j].Module {
+			return rows[i].Version < rows[j].Version
+		}
+		return rows[i].Module < rows[j].Module
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"modules":          rows,
 		"unexported_count": unexportedCount,
@@ -96,12 +113,15 @@ func (s *Server) handleModules(w http.ResponseWriter, r *http.Request) {
 }
 
 // startDownload starts a background download, returning an error if one is already running.
-func (s *Server) startDownload(kind string, work func(logf func(string, ...any)) error) error {
+func (s *Server) startDownload(kind string, work func(ctx context.Context, logf func(string, ...any)) error) error {
 	s.dlState.mu.Lock()
 	if s.dlState.Status == "running" {
 		s.dlState.mu.Unlock()
 		return fmt.Errorf("download already in progress")
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.dlState.cancel = cancel
 	s.dlState.Status = "running"
 	s.dlState.Error = ""
 	s.dlState.Message = kind
@@ -111,7 +131,8 @@ func (s *Server) startDownload(kind string, work func(logf func(string, ...any))
 	s.dlState.mu.Unlock()
 
 	go func() {
-		err := work(s.dlState.logf)
+		defer cancel()
+		err := work(ctx, s.dlState.logf)
 
 		// Write directly to fields under lock — do NOT call logf() here,
 		// because logf() also locks mu and Go mutexes are not reentrant.
@@ -121,15 +142,37 @@ func (s *Server) startDownload(kind string, work func(logf func(string, ...any))
 		if err != nil {
 			s.dlState.Status = "error"
 			s.dlState.Error = err.Error()
-			s.dlState.Logs = append(s.dlState.Logs, ts+" error: "+err.Error())
+			msg := err.Error()
+			if errors.Is(err, context.Canceled) {
+				msg = "Отменено пользователем"
+			}
+			s.dlState.Logs = append(s.dlState.Logs, ts+" error: "+msg)
 		} else {
 			s.dlState.Status = "done"
 			s.dlState.Message = "Готово"
 			s.dlState.Logs = append(s.dlState.Logs, ts+" done")
 		}
+		s.dlState.cancel = nil
 		s.dlState.mu.Unlock()
 	}()
 	return nil
+}
+
+func (s *Server) handleDownloadCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	s.dlState.mu.Lock()
+	cancel := s.dlState.cancel
+	s.dlState.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "cancelling"})
+	} else {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no download running"})
+	}
 }
 
 func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
@@ -165,9 +208,9 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		log.Printf("warn: pin package: %v", err)
 	}
 
-	err := s.startDownload("module: "+req.Module, func(logf func(string, ...any)) error {
+	err := s.startDownload("module: "+req.Module, func(ctx context.Context, logf func(string, ...any)) error {
 		logf("start module=%s version=%s recursive=%t", req.Module, req.Version, req.Recursive)
-		if err := s.downloader.DownloadModule(context.Background(), req.Module, req.Version, req.Recursive, logf); err != nil {
+		if err := s.downloader.DownloadModule(ctx, req.Module, req.Version, req.Recursive, logf); err != nil {
 			return err
 		}
 		// Resolve pinned version if "latest" was requested.
@@ -214,9 +257,9 @@ func (s *Server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	dlErr := s.startDownload("go.mod", func(logf func(string, ...any)) error {
+	dlErr := s.startDownload("go.mod", func(ctx context.Context, logf func(string, ...any)) error {
 		logf("start requires=%d recursive=%t", len(requires), req.Recursive)
-		return s.downloader.DownloadGoMod(context.Background(), req.GoMod, req.Recursive, logf)
+		return s.downloader.DownloadGoMod(ctx, req.GoMod, req.Recursive, logf)
 	})
 	if dlErr != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": dlErr.Error()})

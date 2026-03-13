@@ -7,14 +7,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )
-
 
 // resolveModulePath resolves a package path to the root module path by probing
 // the upstream GOPROXY. It tries successively shorter path prefixes (from
@@ -23,8 +21,6 @@ import (
 // unchanged.
 func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
 	parts := strings.Split(pkgPath, "/")
-	// Try from longest to shortest prefix.
-	// We start at the full path and walk up to the root.
 	for i := len(parts); i >= 1; i-- {
 		candidate := strings.Join(parts[:i], "/")
 		escapedPath, err := module.EscapePath(candidate)
@@ -33,14 +29,12 @@ func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string)
 		}
 		var probeURL string
 		if version != "" && version != "latest" {
-			// Probe a specific version via /@v/<version>.info
 			escapedVer, err := module.EscapeVersion(version)
 			if err != nil {
 				continue
 			}
 			probeURL = s.upstream + "/" + escapedPath + "/@v/" + escapedVer + ".info"
 		} else {
-			// Probe the latest endpoint
 			probeURL = s.upstream + "/" + escapedPath + "/@latest"
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
@@ -56,7 +50,6 @@ func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string)
 			return candidate, nil
 		}
 	}
-	// Fallback: return the original path; go mod download will produce a clear error.
 	return pkgPath, nil
 }
 
@@ -92,37 +85,6 @@ func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
 	return best, nil
 }
 
-func (s *Server) proxyBaseDir() string {
-	newBase := filepath.Join(s.cacheDir, "gomodcache", "cache", "download")
-	if st, err := os.Stat(newBase); err == nil && st.IsDir() {
-		return newBase
-	}
-	return filepath.Join(s.workDir, "proxy")
-}
-
-func (s *Server) updateVersionList(versionDir, version string) error {
-	listFile := filepath.Join(versionDir, "list")
-	set := map[string]struct{}{version: {}}
-	if data, err := os.ReadFile(listFile); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				set[line] = struct{}{}
-			}
-		}
-	}
-	var versions []string
-	for v := range set {
-		versions = append(versions, v)
-	}
-	sort.Strings(versions)
-	out := strings.Join(versions, "\n")
-	if out != "" {
-		out += "\n"
-	}
-	return os.WriteFile(listFile, []byte(out), 0o644)
-}
-
 func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -151,11 +113,6 @@ func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, target)
 		return
 	}
-	legacyTarget := filepath.Join(s.workDir, "proxy", filepath.FromSlash(rel))
-	if st, err := os.Stat(legacyTarget); err == nil && !st.IsDir() {
-		http.ServeFile(w, r, legacyTarget)
-		return
-	}
 
 	http.NotFound(w, r)
 }
@@ -166,37 +123,35 @@ func (s *Server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, es
 		body    []byte
 	}
 
-	baseDirs := []string{s.proxyBaseDir(), filepath.Join(s.workDir, "proxy")}
+	base := s.proxyBaseDir()
 	var best *latestCandidate
 
-	for _, base := range baseDirs {
-		versionDir := filepath.Join(base, filepath.FromSlash(escapedModulePath), "@v")
-		entries, err := os.ReadDir(versionDir)
+	versionDir := filepath.Join(base, filepath.FromSlash(escapedModulePath), "@v")
+	entries, err := os.ReadDir(versionDir)
+	if err != nil {
+		return false
+	}
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
+			continue
+		}
+
+		escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
+		version, err := module.UnescapeVersion(escapedVersion)
+		if err != nil {
+			version = escapedVersion
+		}
+
+		infoPath := filepath.Join(versionDir, ent.Name())
+		body, err := os.ReadFile(infoPath)
 		if err != nil {
 			continue
 		}
-		for _, ent := range entries {
-			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
-				continue
-			}
 
-			escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
-			version, err := module.UnescapeVersion(escapedVersion)
-			if err != nil {
-				version = escapedVersion
-			}
-
-			infoPath := filepath.Join(versionDir, ent.Name())
-			body, err := os.ReadFile(infoPath)
-			if err != nil {
-				continue
-			}
-
-			if best == nil || semver.Compare(version, best.version) > 0 {
-				best = &latestCandidate{
-					version: version,
-					body:    body,
-				}
+		if best == nil || semver.Compare(version, best.version) > 0 {
+			best = &latestCandidate{
+				version: version,
+				body:    body,
 			}
 		}
 	}

@@ -44,15 +44,15 @@ func (d *Downloader) DownloadModule(ctx context.Context, modPath, version string
 		return err
 	}
 
-	if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", target); err != nil {
+	if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", "-x", target); err != nil {
 		return err
 	}
 
 	if recursive {
-		if err := d.runGoCmd(ctx, workdir, logf, "get", target); err != nil {
+		if err := d.runGoCmd(ctx, workdir, logf, "get", "-x", target); err != nil {
 			return err
 		}
-		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
+		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", "-x"); err != nil {
 			return err
 		}
 		d.downloadModuleGraphBestEffort(ctx, workdir, logf)
@@ -73,7 +73,7 @@ func (d *Downloader) DownloadGoMod(ctx context.Context, goMod string, recursive 
 	}
 
 	if recursive {
-		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
+		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", "-x"); err != nil {
 			return err
 		}
 		d.downloadModuleGraphBestEffort(ctx, workdir, logf)
@@ -102,7 +102,7 @@ func (d *Downloader) DownloadGoMod(ctx context.Context, goMod string, recursive 
 			continue
 		}
 		target := m.Path + "@" + m.Version
-		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", target); err != nil {
+		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", "-x", target); err != nil {
 			return err
 		}
 	}
@@ -155,7 +155,7 @@ func (d *Downloader) downloadModuleGraphBestEffort(ctx context.Context, workdir 
 		seen[target] = struct{}{}
 		attempted++
 
-		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", target); err != nil {
+		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download", "-x", target); err != nil {
 			failed++
 			logf("warn: skip %s: %v", target, err)
 		}

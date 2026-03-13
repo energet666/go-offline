@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchJSON, watchDownload } from "../utils";
+	import { cancelDownload, fetchJSON, watchDownload } from "../utils";
 	import { loadModules } from "../stores";
 
 	let gomodInput = $state("");
@@ -67,6 +67,12 @@
 				class="btn btn-primary shadow-lg shadow-primary/20"
 				onclick={startGomodPrefetch}>Скачать зависимости</button
 			>
+			{#if gomodStatus.includes("[running]")}
+				<button
+					class="btn btn-error btn-outline shadow-lg shadow-error/20"
+					onclick={cancelDownload}>Отмена</button
+				>
+			{/if}
 			<span class="text-sm opacity-60 ml-2">{gomodStatus}</span>
 		</div>
 		<div
