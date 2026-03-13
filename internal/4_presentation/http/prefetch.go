@@ -2,13 +2,18 @@ package httphandlers
 
 import (
 	"context"
-	"go-offline/internal/1_domain/prefetch"
 	"sort"
 )
 
-// prefetchModule выполняет предварительную загрузку (prefetch) указанного модуля и его зависимостей (если recursive=true).
-// Функция использует внутреннюю логику сервера без вызова внешних команд go, вручную скачивая модуль и читая его go.mod.
-func (s *Server) prefetchModule(ctx context.Context, modPath, version string, recursive bool, seen map[string]struct{}, budget *fetchBudget, logf func(string, ...any)) (prefetch.Report, error) {
+// downloadReport tracks what was downloaded and what was skipped.
+type downloadReport struct {
+	Downloaded []string `json:"downloaded"`
+	Skipped    []string `json:"skipped"`
+}
+
+// prefetchModule downloads the specified module and its dependencies (if recursive=true)
+// using internal server logic, manually fetching each module and reading its go.mod.
+func (s *Server) prefetchModule(ctx context.Context, modPath, version string, recursive bool, seen map[string]struct{}, budget *fetchBudget, logf func(string, ...any)) (downloadReport, error) {
 	type task struct {
 		modPath string
 		version string
@@ -19,7 +24,7 @@ func (s *Server) prefetchModule(ctx context.Context, modPath, version string, re
 		seen = map[string]struct{}{}
 	}
 	var (
-		report prefetch.Report
+		report downloadReport
 		queue  = []task{{modPath: modPath, version: version}} // Очередь модулей, которые нужно обработать
 		queued = map[string]struct{}{rootKey: {}}             // Множество модулей, уже добавленных в очередь, чтобы избежать дублирования
 	)

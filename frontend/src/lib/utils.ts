@@ -27,8 +27,7 @@ export async function fetchJSON(url: string, options?: RequestInit) {
 	return data;
 }
 
-export async function watchJob(
-	jobId: string,
+export async function watchDownload(
 	onStatus: (status: string) => void,
 	onLog: (logs: string[]) => void,
 	onDone: () => void
@@ -36,23 +35,26 @@ export async function watchJob(
 	let done = false;
 	while (!done) {
 		try {
-			const job = await fetchJSON("/api/jobs/" + encodeURIComponent(jobId));
-			const prefix = `[${job.state}] `;
+			const state = await fetchJSON("/api/download-status");
+			const prefix = `[${state.status}] `;
 
 			let statusText = "";
-			if (job.state === "done") {
-				statusText = prefix + (job.message || "Готово");
+			if (state.status === "done") {
+				statusText = prefix + (state.message || "Готово");
 				done = true;
 				onDone();
-			} else if (job.state === "error") {
-				statusText = prefix + (job.error || "Ошибка");
+			} else if (state.status === "error") {
+				statusText = prefix + (state.error || "Ошибка");
+				done = true;
+			} else if (state.status === "idle") {
+				statusText = "Ожидание...";
 				done = true;
 			} else {
-				statusText = prefix + (job.message || "Выполняется...");
+				statusText = prefix + (state.message || "Выполняется...");
 			}
 
 			onStatus(statusText);
-			onLog(job.logs || []);
+			onLog(state.logs || []);
 		} catch (e: any) {
 			onStatus("Ошибка статуса: " + e.message);
 			done = true;

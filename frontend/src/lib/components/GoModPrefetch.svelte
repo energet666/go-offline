@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchJSON, watchJob } from "../utils";
+	import { fetchJSON, watchDownload } from "../utils";
 	import { loadModules } from "../stores";
 
 	let gomodInput = $state("");
@@ -8,10 +8,10 @@
 	let gomodLog = $state<string[]>([]);
 
 	async function startGomodPrefetch() {
-		gomodStatus = "Создание задачи...";
+		gomodStatus = "Запуск загрузки...";
 		gomodLog = ["Запуск..."];
 		try {
-			const data = await fetchJSON("/api/prefetch-gomod", {
+			await fetchJSON("/api/prefetch-gomod", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -19,9 +19,8 @@
 					recursive: gomodRecursive,
 				}),
 			});
-			gomodStatus = `[queued] Задача #${data.job_id}`;
-			watchJob(
-				data.job_id,
+			gomodStatus = "[running] Загрузка запущена";
+			watchDownload(
 				(status) => (gomodStatus = status),
 				(logs) => (gomodLog = logs),
 				() => loadModules(),

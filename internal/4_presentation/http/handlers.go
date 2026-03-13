@@ -95,6 +95,43 @@ func (s *Server) handleModules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// startDownload starts a background download, returning an error if one is already running.
+func (s *Server) startDownload(kind string, work func(logf func(string, ...any)) error) error {
+	s.dlState.mu.Lock()
+	if s.dlState.Status == "running" {
+		s.dlState.mu.Unlock()
+		return fmt.Errorf("download already in progress")
+	}
+	s.dlState.Status = "running"
+	s.dlState.Error = ""
+	s.dlState.Message = kind
+	s.dlState.Logs = []string{}
+	s.dlState.StartedAt = time.Now().Format(time.RFC3339)
+	s.dlState.FinishedAt = ""
+	s.dlState.mu.Unlock()
+
+	go func() {
+		err := work(s.dlState.logf)
+
+		// Write directly to fields under lock — do NOT call logf() here,
+		// because logf() also locks mu and Go mutexes are not reentrant.
+		s.dlState.mu.Lock()
+		s.dlState.FinishedAt = time.Now().Format(time.RFC3339)
+		ts := time.Now().Format("15:04:05")
+		if err != nil {
+			s.dlState.Status = "error"
+			s.dlState.Error = err.Error()
+			s.dlState.Logs = append(s.dlState.Logs, ts+" error: "+err.Error())
+		} else {
+			s.dlState.Status = "done"
+			s.dlState.Message = "Готово"
+			s.dlState.Logs = append(s.dlState.Logs, ts+" done")
+		}
+		s.dlState.mu.Unlock()
+	}()
+	return nil
+}
+
 func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -112,8 +149,7 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve package path -> module path before pinning or starting the job.
-	// Use a short timeout so we don't block the HTTP response too long.
+	// Resolve package path -> module path before pinning or starting the download.
 	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 30*time.Second)
 	resolvedModule, resolveErr := s.resolveModulePath(resolveCtx, req.Module, req.Version)
 	resolveCancel()
@@ -124,12 +160,30 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		req.Module = resolvedModule
 	}
 
-	id, err := s.prefetchSvc.PrefetchModule(context.Background(), req.Module, req.Version, req.Recursive)
+	// Pin the module.
+	if err := s.pinnedRepo.Pin(req.Module, req.Version); err != nil {
+		log.Printf("warn: pin package: %v", err)
+	}
+
+	err := s.startDownload("module: "+req.Module, func(logf func(string, ...any)) error {
+		logf("start module=%s version=%s recursive=%t", req.Module, req.Version, req.Recursive)
+		if err := s.downloader.DownloadModule(context.Background(), req.Module, req.Version, req.Recursive, logf); err != nil {
+			return err
+		}
+		// Resolve pinned version if "latest" was requested.
+		if strings.TrimSpace(req.Version) == "" {
+			if resolved, err := s.resolveVersionFromCache(req.Module); err == nil && resolved != "" {
+				logf("resolved pinned version %s -> %s", req.Module, resolved)
+				s.pinnedRepo.ResolvePinnedLatest(req.Module, resolved)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
 func (s *Server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
@@ -153,42 +207,31 @@ func (s *Server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var reqRequires []struct {
-		Path    string
-		Version string
-	}
+	// Pin all requires.
 	for _, r := range requires {
-		reqRequires = append(reqRequires, struct {
-			Path    string
-			Version string
-		}{Path: r.Path, Version: r.Version})
+		if err := s.pinnedRepo.Pin(r.Path, r.Version); err != nil {
+			log.Printf("warn: pin package %s@%s: %v", r.Path, r.Version, err)
+		}
 	}
-	id, err := s.prefetchSvc.PrefetchGoMod(context.Background(), req.GoMod, req.Recursive, reqRequires)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+
+	dlErr := s.startDownload("go.mod", func(logf func(string, ...any)) error {
+		logf("start requires=%d recursive=%t", len(requires), req.Recursive)
+		return s.downloader.DownloadGoMod(context.Background(), req.GoMod, req.Recursive, logf)
+	})
+	if dlErr != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": dlErr.Error()})
 		return
 	}
-
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": id})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
-func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDownloadStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-	id = strings.TrimSpace(id)
-	if id == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "job id is required"})
-		return
-	}
-	job, err := s.prefetchSvc.GetJob(id)
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
-		return
-	}
-	writeJSON(w, http.StatusOK, job.Snapshot())
+	snap := s.dlState.snapshot()
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) handleProxyRequests(w http.ResponseWriter, r *http.Request) {

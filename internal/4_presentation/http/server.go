@@ -2,14 +2,49 @@ package httphandlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"go-offline/internal/1_domain/cache"
-	"go-offline/internal/1_domain/prefetch"
-	"go-offline/internal/2_application"
+	application "go-offline/internal/2_application"
+	"go-offline/internal/3_infrastructure/gotool"
 )
+
+// downloadState tracks the current background download operation.
+type downloadState struct {
+	mu         sync.Mutex
+	Status     string   `json:"status"` // "idle", "running", "done", "error"
+	Error      string   `json:"error,omitempty"`
+	Message    string   `json:"message,omitempty"`
+	Logs       []string `json:"logs"`
+	StartedAt  string   `json:"started_at,omitempty"`
+	FinishedAt string   `json:"finished_at,omitempty"`
+}
+
+func (ds *downloadState) logf(format string, args ...any) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	line := fmt.Sprintf("%s %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+	ds.Logs = append(ds.Logs, line)
+	if len(ds.Logs) > 300 {
+		ds.Logs = ds.Logs[len(ds.Logs)-300:]
+	}
+}
+
+func (ds *downloadState) snapshot() downloadState {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	return downloadState{
+		Status:     ds.Status,
+		Error:      ds.Error,
+		Message:    ds.Message,
+		Logs:       append([]string(nil), ds.Logs...),
+		StartedAt:  ds.StartedAt,
+		FinishedAt: ds.FinishedAt,
+	}
+}
 
 type Server struct {
 	cacheDir     string
@@ -21,14 +56,13 @@ type Server struct {
 	goBin        string
 	maxJobBytes  int64
 	maxModules   int64
-	downloader   prefetch.Downloader
-	prefetchSvc  *application.PrefetchService
+	downloader   *gotool.Downloader
 	cacheSvc     *application.CacheService
-	jobsRepo     prefetch.JobRepository
+	pinnedRepo   cache.PinnedRepository
 	proxyLogsMu  sync.Mutex
 	proxyLogs    []string
 	proxyLogSeq  uint64
-	pinnedRepo   cache.PinnedRepository
+	dlState      downloadState
 }
 
 type prefetchRequest struct {
@@ -45,13 +79,6 @@ type prefetchFromGoModRequest struct {
 type modReq struct {
 	Path    string
 	Version string
-}
-
-type listedModule struct {
-	Path    string        `json:"Path"`
-	Version string        `json:"Version"`
-	Main    bool          `json:"Main"`
-	Replace *listedModule `json:"Replace,omitempty"`
 }
 
 type fetchBudget struct {
@@ -71,9 +98,8 @@ type ServerConfig struct {
 	GoBin        string
 	MaxJobBytes  int64
 	MaxModules   int64
-	Downloader   prefetch.Downloader
+	Downloader   *gotool.Downloader
 	CacheSvc     *application.CacheService
-	JobsRepo     prefetch.JobRepository
 	PinnedRepo   cache.PinnedRepository
 }
 
@@ -90,13 +116,12 @@ func NewServer(cfg ServerConfig) *Server {
 		maxModules:   cfg.MaxModules,
 		downloader:   cfg.Downloader,
 		cacheSvc:     cfg.CacheSvc,
-		jobsRepo:     cfg.JobsRepo,
 		pinnedRepo:   cfg.PinnedRepo,
+		dlState: downloadState{
+			Status: "idle",
+			Logs:   make([]string, 0),
+		},
 	}
-}
-
-func (s *Server) SetPrefetchService(svc *application.PrefetchService) {
-	s.prefetchSvc = svc
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
@@ -104,7 +129,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/modules", s.handleModules)
 	mux.HandleFunc("/api/prefetch", s.handlePrefetch)
 	mux.HandleFunc("/api/prefetch-gomod", s.handlePrefetchGoMod)
-	mux.HandleFunc("/api/jobs/", s.handleJobStatus)
+	mux.HandleFunc("/api/download-status", s.handleDownloadStatus)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
 	mux.HandleFunc("/api/export-cache", s.handleExportCache)

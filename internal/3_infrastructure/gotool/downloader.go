@@ -1,6 +1,7 @@
 package gotool
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,33 +11,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"go-offline/internal/1_domain/prefetch"
 )
 
-type downloader struct {
+// Downloader wraps the 'go' CLI tool for downloading modules.
+type Downloader struct {
 	goBin    string
 	workDir  string
 	cacheDir string
 }
 
 // New creates a new Downloader using the 'go' tool CLI.
-func New(goBin, workDir, cacheDir string) prefetch.Downloader {
-	return &downloader{
+func New(goBin, workDir, cacheDir string) *Downloader {
+	return &Downloader{
 		goBin:    goBin,
 		workDir:  workDir,
 		cacheDir: cacheDir,
 	}
 }
 
-func valueOr(a, b string) string {
-	if a == "" {
-		return b
-	}
-	return a
-}
-
-func (d *downloader) DownloadModule(ctx context.Context, modPath, version string, recursive bool, logf func(string, ...any)) error {
+func (d *Downloader) DownloadModule(ctx context.Context, modPath, version string, recursive bool, logf func(string, ...any)) error {
 	workdir, err := os.MkdirTemp(filepath.Join(d.workDir, "tmp"), "prefetch-module-*")
 	if err != nil {
 		return err
@@ -45,7 +38,7 @@ func (d *downloader) DownloadModule(ctx context.Context, modPath, version string
 	defer d.cleanupUnpackedModules(logf)
 
 	target := modPath + "@" + valueOr(version, "latest")
-	logf("go prefetch target %s", target)
+	logf("go download target %s", target)
 
 	if err := d.runGoCmd(ctx, workdir, logf, "mod", "init", "prefetch.local/job"); err != nil {
 		return err
@@ -62,17 +55,12 @@ func (d *downloader) DownloadModule(ctx context.Context, modPath, version string
 		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
 			return err
 		}
-		d.prefetchModuleGraphBestEffort(ctx, workdir, logf)
+		d.downloadModuleGraphBestEffort(ctx, workdir, logf)
 	}
 	return nil
 }
 
-// Note: Requires fetching from a go.mod file, which the server uses parseGoModRequires for.
-// We will let the Go tool do `go mod download` which natively parses go.mod.
-// Wait, the original code parsed go.mod manually *if not recursive* and downloaded each require.
-// If recursive, it just did `go mod download` and `prefetchModuleGraphBestEffort`.
-
-func (d *downloader) DownloadGoMod(ctx context.Context, goMod string, recursive bool, logf func(string, ...any)) error {
+func (d *Downloader) DownloadGoMod(ctx context.Context, goMod string, recursive bool, logf func(string, ...any)) error {
 	workdir, err := os.MkdirTemp(filepath.Join(d.workDir, "tmp"), "prefetch-gomod-*")
 	if err != nil {
 		return err
@@ -88,11 +76,10 @@ func (d *downloader) DownloadGoMod(ctx context.Context, goMod string, recursive 
 		if err := d.runGoCmd(ctx, workdir, logf, "mod", "download"); err != nil {
 			return err
 		}
-		d.prefetchModuleGraphBestEffort(ctx, workdir, logf)
+		d.downloadModuleGraphBestEffort(ctx, workdir, logf)
 		return nil
 	}
 
-	// This relies on `go list -m` parsing the local go.mod, which is native and doesn't require parseGoModRequires
 	out, err := d.runGoCmdOutput(ctx, workdir, logf, "list", "-m", "-json", "all")
 	if err != nil {
 		return fmt.Errorf("unable to list modules: %v", err)
@@ -130,7 +117,7 @@ type listedModule struct {
 	Replace *listedModule `json:"Replace,omitempty"`
 }
 
-func (d *downloader) prefetchModuleGraphBestEffort(ctx context.Context, workdir string, logf func(string, ...any)) {
+func (d *Downloader) downloadModuleGraphBestEffort(ctx context.Context, workdir string, logf func(string, ...any)) {
 	out, err := d.runGoCmdOutput(ctx, workdir, logf, "list", "-m", "-json", "all")
 	if err != nil {
 		logf("warn: unable to enumerate module graph: %v", err)
@@ -174,36 +161,55 @@ func (d *downloader) prefetchModuleGraphBestEffort(ctx context.Context, workdir 
 		}
 	}
 	if attempted > 0 {
-		logf("graph prefetch completed: attempted=%d failed=%d", attempted, failed)
+		logf("graph download completed: attempted=%d failed=%d", attempted, failed)
 	}
 }
 
-func (d *downloader) runGoCmd(ctx context.Context, workdir string, logf func(string, ...any), args ...string) error {
+func (d *Downloader) runGoCmd(ctx context.Context, workdir string, logf func(string, ...any), args ...string) error {
 	_, err := d.runGoCmdOutput(ctx, workdir, logf, args...)
 	return err
 }
 
-func (d *downloader) runGoCmdOutput(ctx context.Context, workdir string, logf func(string, ...any), args ...string) ([]byte, error) {
+// runGoCmdOutput runs a go command and streams its output line-by-line to logf
+// in real-time, while also capturing the full output for return.
+func (d *Downloader) runGoCmdOutput(ctx context.Context, workdir string, logf func(string, ...any), args ...string) ([]byte, error) {
 	logf("$ %s %s", d.goBin, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, d.goBin, args...)
 	cmd.Dir = workdir
 	cmd.Env = d.goEnv()
 
-	out, err := cmd.CombinedOutput()
-	if len(out) > 0 {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if strings.TrimSpace(line) != "" {
-				logf("go: %s", line)
+	// Use a pipe to stream output line-by-line to logf as it arrives.
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	var captured []byte
+	streamDone := make(chan struct{})
+
+	go func() {
+		defer close(streamDone)
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			captured = append(captured, line...)
+			captured = append(captured, '\n')
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				logf("go: %s", trimmed)
 			}
 		}
-	}
+	}()
+
+	err := cmd.Run()
+	pw.Close()
+	<-streamDone
+
 	if err != nil {
-		return out, fmt.Errorf("command failed: %s %s: %w", d.goBin, strings.Join(args, " "), err)
+		return captured, fmt.Errorf("command failed: %s %s: %w", d.goBin, strings.Join(args, " "), err)
 	}
-	return out, nil
+	return captured, nil
 }
 
-func (d *downloader) goEnv() []string {
+func (d *Downloader) goEnv() []string {
 	env := os.Environ()
 	env = append(env, "GOMODCACHE="+filepath.Join(d.cacheDir, "gomodcache"))
 	env = append(env, "GOCACHE="+filepath.Join(d.workDir, "gocache"))
@@ -214,9 +220,7 @@ func (d *downloader) goEnv() []string {
 // cleanupUnpackedModules removes unpacked module source directories from
 // GOMODCACHE, keeping only the "cache" subdirectory which contains the
 // .info, .mod, .zip files needed by the proxy.
-// Go marks cached module files as read-only, so we must make them writable
-// before removal.
-func (d *downloader) cleanupUnpackedModules(logf func(string, ...any)) {
+func (d *Downloader) cleanupUnpackedModules(logf func(string, ...any)) {
 	gomodcache := filepath.Join(d.cacheDir, "gomodcache")
 	entries, err := os.ReadDir(gomodcache)
 	if err != nil {
@@ -227,7 +231,6 @@ func (d *downloader) cleanupUnpackedModules(logf func(string, ...any)) {
 			continue
 		}
 		path := filepath.Join(gomodcache, entry.Name())
-		// Make all files and directories writable so os.RemoveAll can delete them.
 		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil
@@ -245,4 +248,11 @@ func (d *downloader) cleanupUnpackedModules(logf func(string, ...any)) {
 			logf("cleanup: removed unpacked module directory %s", entry.Name())
 		}
 	}
+}
+
+func valueOr(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a
 }

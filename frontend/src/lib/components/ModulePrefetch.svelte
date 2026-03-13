@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fetchJSON, watchJob } from "../utils";
+	import { fetchJSON, watchDownload } from "../utils";
 	import { loadModules } from "../stores";
 
 	let moduleInput = $state("");
@@ -9,10 +9,10 @@
 	let prefetchLog = $state<string[]>([]);
 
 	async function startPrefetch() {
-		prefetchStatus = "Создание задачи...";
+		prefetchStatus = "Запуск загрузки...";
 		prefetchLog = ["Запуск..."];
 		try {
-			const data = await fetchJSON("/api/prefetch", {
+			await fetchJSON("/api/prefetch", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -21,9 +21,8 @@
 					recursive: recursivePrefetch,
 				}),
 			});
-			prefetchStatus = `[queued] Задача #${data.job_id}`;
-			watchJob(
-				data.job_id,
+			prefetchStatus = "[running] Загрузка запущена";
+			watchDownload(
 				(status) => (prefetchStatus = status),
 				(logs) => (prefetchLog = logs),
 				() => loadModules(),
