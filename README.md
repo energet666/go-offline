@@ -87,10 +87,16 @@ curl -X POST http://127.0.0.1:8080/api/prefetch \
   -d '{"module":"github.com/pkg/errors","version":"v0.9.1","recursive":true}'
 ```
 
-Ответ вернёт `job_id`. Статус и логи:
+Для проверки статуса загрузки и получения логов:
 
 ```bash
-curl http://127.0.0.1:8080/api/jobs/j-1
+curl http://127.0.0.1:8080/api/download-status
+```
+
+Для отмены текущей загрузки:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/download-cancel
 ```
 
 ### Prefetch из go.mod
@@ -137,13 +143,10 @@ curl -X POST http://127.0.0.1:8080/api/import-cache -F archive=@go-offline-full-
 - `-workdir` путь к рабочей папке — gocache, proxy, tmp (по умолчанию `./workdir`)
 - `-upstream` upstream GOPROXY для загрузок (по умолчанию `https://proxy.golang.org`)
 - `-http-timeout` timeout одного запроса к upstream (по умолчанию `5m`)
-- `-fetch-retries` число повторов при timeout/429/5xx (по умолчанию `3`)
-- `-max-job-bytes` лимит объёма скачивания за 1 задачу (по умолчанию `2147483648`)
-- `-max-job-modules` лимит числа модулей за 1 задачу (по умолчанию `4000`)
 - `-go-bin` путь к бинарнику `go` (по умолчанию `go`)
 
-Для нестабильной сети можно стартовать так:
+Для нестабильной сети можно увеличить timeout:
 
 ```bash
-./bin/go-offline -listen :8080 -cache ./cache -http-timeout 10m -fetch-retries 6
+./bin/go-offline -listen :8080 -cache ./cache -http-timeout 10m
 ```
