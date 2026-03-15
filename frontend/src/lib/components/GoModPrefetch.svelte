@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { cancelDownload, fetchJSON, watchDownload } from "../utils";
-	import { loadModules } from "../stores";
+	import { loadModules, isDownloadingStore } from "../stores";
 
 	let gomodInput = $state("");
 	let gomodRecursive = $state(true);
 	let gomodStatus = $state("");
 	let gomodLog = $state<string[]>([]);
+	let isRunning = $derived($isDownloadingStore || gomodStatus.includes("[running]"));
 
 	async function startGomodPrefetch() {
+		if ($isDownloadingStore) return;
 		gomodStatus = "Запуск загрузки...";
 		gomodLog = ["Запуск..."];
 		try {
@@ -46,6 +48,7 @@
 				class="textarea textarea-bordered h-28 font-mono bg-base-200/50"
 				placeholder="module your/module&#10;go 1.22&#10;require github.com/pkg/errors v0.9.1"
 				bind:value={gomodInput}
+				disabled={isRunning}
 			></textarea>
 		</div>
 		<div class="form-control">
@@ -54,6 +57,7 @@
 					type="checkbox"
 					class="checkbox checkbox-primary checkbox-sm"
 					bind:checked={gomodRecursive}
+					disabled={isRunning}
 				/>
 				<span class="label-text text-left opacity-80"
 					>Рекурсивно обходить зависимости из зависимостей (может быть долго)</span
@@ -65,7 +69,8 @@
 		>
 			<button
 				class="btn btn-primary shadow-lg shadow-primary/20"
-				onclick={startGomodPrefetch}>Скачать зависимости</button
+				onclick={startGomodPrefetch}
+				disabled={isRunning}>Скачать зависимости</button
 			>
 			{#if gomodStatus.includes("[running]")}
 				<button

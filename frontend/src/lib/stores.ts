@@ -3,6 +3,7 @@ import { fetchJSON } from "./utils";
 
 // Toast state and helper
 export const toastStore = writable({ show: false, message: "" });
+export const isDownloadingStore = writable(false);
 let toastTimeout: any;
 
 export function showToastMessage(msg: string) {

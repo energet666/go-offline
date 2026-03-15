@@ -1,3 +1,5 @@
+import { isDownloadingStore } from "./stores";
+
 export async function copyText(text: string, event: Event) {
 	try {
 		await navigator.clipboard.writeText(text);
@@ -36,6 +38,7 @@ export async function watchDownload(
 	onLog: (logs: string[]) => void,
 	onDone: () => void
 ) {
+	isDownloadingStore.set(true);
 	let done = false;
 	while (!done) {
 		try {
@@ -67,4 +70,5 @@ export async function watchDownload(
 			await new Promise((r) => setTimeout(r, 1000));
 		}
 	}
+	isDownloadingStore.set(false);
 }

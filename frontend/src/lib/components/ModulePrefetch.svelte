@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { cancelDownload, fetchJSON, watchDownload } from "../utils";
-	import { loadModules } from "../stores";
+	import { loadModules, isDownloadingStore } from "../stores";
 
 	let moduleInput = $state("");
 	let versionInput = $state("");
 	let recursivePrefetch = $state(true);
 	let prefetchStatus = $state("");
 	let prefetchLog = $state<string[]>([]);
+	let isRunning = $derived($isDownloadingStore || prefetchStatus.includes("[running]"));
 
 	async function startPrefetch() {
+		if ($isDownloadingStore) return;
 		prefetchStatus = "Запуск загрузки...";
 		prefetchLog = ["Запуск..."];
 		try {
@@ -48,6 +50,7 @@
 				placeholder="github.com/pkg/errors"
 				class="input input-bordered w-full bg-base-200/50"
 				bind:value={moduleInput}
+				disabled={isRunning}
 			/>
 		</div>
 		<div class="form-control w-full">
@@ -60,6 +63,7 @@
 				placeholder="v0.9.1 или пусто (= latest)"
 				class="input input-bordered w-full bg-base-200/50"
 				bind:value={versionInput}
+				disabled={isRunning}
 			/>
 		</div>
 		<div class="form-control">
@@ -68,6 +72,7 @@
 					type="checkbox"
 					class="checkbox checkbox-primary checkbox-sm"
 					bind:checked={recursivePrefetch}
+					disabled={isRunning}
 				/>
 				<span class="label-text opacity-80"
 					>Скачать рекурсивно зависимости из go.mod</span
@@ -79,7 +84,8 @@
 		>
 			<button
 				class="btn btn-primary shadow-lg shadow-primary/20"
-				onclick={startPrefetch}>Скачать</button
+				onclick={startPrefetch}
+				disabled={isRunning}>Скачать</button
 			>
 			{#if prefetchStatus.includes("[running]")}
 				<button
