@@ -46,6 +46,11 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(*workDir, "tmp"), 0o755); err != nil {
 		log.Fatalf("create tmp dir: %v", err)
 	}
+	
+	_ = os.RemoveAll(filepath.Join(*workDir, "exports"))
+	if err := os.MkdirAll(filepath.Join(*workDir, "exports"), 0o755); err != nil {
+		log.Fatalf("create exports dir: %v", err)
+	}
 
 	downloader := gotool.New(*goBin, *workDir, *cacheDir)
 	pinnedRepo, err := fs_cache.NewPinnedRepository(*cacheDir)
@@ -56,6 +61,7 @@ func main() {
 
 	srv := httphandlers.NewServer(httphandlers.ServerConfig{
 		CacheDir:   *cacheDir,
+		WorkDir:    *workDir,
 		Upstream:   strings.TrimRight(*upstream, "/"),
 		HttpClient: &http.Client{Timeout: *httpTimeout},
 		Downloader: downloader,

@@ -46,20 +46,35 @@
 		try {
 			const qs = incremental ? "?incremental=true" : "";
 			
-			// To avoid memory limits/crashes on large downloads (like with fetch().blob()), 
-			// use native browser download via anchor element.
+			// 1. Prepare the export archive on the server
+			const res = await fetch(`/api/export-cache/prepare${qs}`, {
+				method: "POST"
+			});
+
+			if (res.status === 204) {
+				showToastMessage("Нет новых пакетов для экспорта");
+				return;
+			}
+
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(data.error || "Ошибка создания архива");
+			}
+
+			// 2. Download the generated archive
 			const a = document.createElement("a");
-			a.href = `/api/export-cache${qs}`;
-			a.download = "";
+			a.href = data.download_url;
+			a.download = data.filename || "";
 			document.body.appendChild(a);
 			a.click();
 			a.remove();
 
+			showToastMessage("Архив успешно сформирован и скачивается!");
+			
 			// Give the browser time to initiate the download stream natively 
 			// before removing the loading state
 			await new Promise((resolve) => setTimeout(resolve, 1500));
 			
-			// If incremental, wait a bit and refresh modules to update the new package count
 			if (incremental) {
 				setTimeout(() => loadModules(), 2000);
 			}

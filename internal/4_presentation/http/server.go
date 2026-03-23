@@ -58,6 +58,7 @@ func (ds *downloadState) snapshot() downloadSnapshot {
 
 type Server struct {
 	cacheDir    string
+	workDir     string
 	upstream    string
 	httpClient  *http.Client
 	downloader  *gotool.Downloader
@@ -87,6 +88,7 @@ type modReq struct {
 
 type ServerConfig struct {
 	CacheDir   string
+	WorkDir    string
 	Upstream   string
 	HttpClient *http.Client
 	Downloader *gotool.Downloader
@@ -97,6 +99,7 @@ type ServerConfig struct {
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
 		cacheDir:   cfg.CacheDir,
+		workDir:    cfg.WorkDir,
 		upstream:   cfg.Upstream,
 		httpClient: cfg.HttpClient,
 		downloader: cfg.Downloader,
@@ -118,7 +121,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/download-cancel", s.handleDownloadCancel)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
-	mux.HandleFunc("/api/export-cache", s.handleExportCache)
+	mux.HandleFunc("/api/export-cache/prepare", s.handleExportPrepare)
+	mux.HandleFunc("/api/export-cache/download", s.handleExportDownload)
 	mux.HandleFunc("/api/import-cache", s.handleImportCache)
 }
 
