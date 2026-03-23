@@ -32,40 +32,37 @@
 	}
 
 	async function exportCache(incremental: boolean) {
+		if (incremental && $unexportedCountStore === 0) {
+			showToastMessage("Нет новых пакетов для экспорта");
+			return;
+		}
+
 		if (incremental) {
 			exportingInc = true;
 		} else {
 			exportingFull = true;
 		}
+		
 		try {
 			const qs = incremental ? "?incremental=true" : "";
-			const res = await fetch(`/api/export-cache${qs}`);
-			if (res.status === 204) {
-				showToastMessage("Нет новых пакетов для экспорта");
-				return;
-			}
-			if (!res.ok) {
-				const err = await res
-					.json()
-					.catch(() => ({ error: "Ошибка экспорта" }));
-				throw new Error(err.error || "Ошибка экспорта");
-			}
-			const blob = await res.blob();
-			const disposition = res.headers.get("Content-Disposition") || "";
-			const match = disposition.match(/filename="?([^"]+)"?/);
-			const filename = match ? match[1] : "go-offline-cache.tar.gz";
-
-			const url = URL.createObjectURL(blob);
+			
+			// To avoid memory limits/crashes on large downloads (like with fetch().blob()), 
+			// use native browser download via anchor element.
 			const a = document.createElement("a");
-			a.href = url;
-			a.download = filename;
+			a.href = `/api/export-cache${qs}`;
+			a.download = "";
 			document.body.appendChild(a);
 			a.click();
 			a.remove();
-			URL.revokeObjectURL(url);
 
-			showToastMessage("Архив кэша скачан!");
-			await loadModules();
+			// Give the browser time to initiate the download stream natively 
+			// before removing the loading state
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			
+			// If incremental, wait a bit and refresh modules to update the new package count
+			if (incremental) {
+				setTimeout(() => loadModules(), 2000);
+			}
 		} catch (err: any) {
 			showToastMessage("Ошибка: " + err.message);
 		} finally {
