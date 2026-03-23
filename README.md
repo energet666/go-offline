@@ -38,12 +38,12 @@ go env -w GOPROXY=http://127.0.0.1:8080 GOSUMDB=off
 1. На машине с интернетом запускаете сервер и через UI/API делаете prefetch нужных модулей/проектов.
 2. Экспортируете кэш:
    - Через UI: кнопка **«Всё»** (полный архив) или **«Новые»** (только то, что не экспортировалось ранее).
-   - Через API: `GET /api/export-cache?incremental=true`.
+   - Через API: `POST /api/export-cache/prepare?incremental=true` (получение ссылки) и далее `GET /api/export-cache/download?file=...`.
 3. Скачается архив с именем вида `go-offline-[full|incremental]-YYYY-MM-DD.tar.gz`.
 4. Переносите архив на офлайн-машину и импортируете через кнопку **«Импорт кэша»** (или `POST /api/import-cache`).
 5. На офлайн-машине запускаете сервер и указываете `GOPROXY` на него.
 
-> **Примечание:** директория `cache/` содержит только данные модулей и `user-packages.json`. Рабочие файлы (`gocache`, `proxy`, `tmp`) хранятся отдельно в `workdir/` и не попадают в экспорт.
+> **Примечание:** директория `cache/` содержит только данные модулей и `user-packages.json`. Рабочие файлы (`gocache`, `proxy`, `tmp`, `exports`) хранятся отдельно в `workdir/` и не попадают в экспорт.
 
 ## API
 
@@ -117,14 +117,17 @@ curl http://127.0.0.1:8080/api/proxy-requests?limit=100
 
 ### Экспорт кэша
 
-Скачивает архив `tar.gz`. Если `incremental=true`, в архив попадут только файлы, которые ранее не экспортировались (состояние хранится в `.export-state.json`).
+Экспорт работает в два этапа: сначала архив собирается на сервере, затем скачивается его готовый файл. Если `incremental=true`, в архив попадут только файлы, которые ранее не экспортировались.
 
 ```bash
-# Полный экспорт
-curl -OJ http://127.0.0.1:8080/api/export-cache
+# 1. Запуск генерации (формирует архив и возвращает JSON c ссылкой на скачивание)
+curl -X POST http://127.0.0.1:8080/api/export-cache/prepare
 
-# Инкрементальный экспорт
-curl -OJ 'http://127.0.0.1:8080/api/export-cache?incremental=true'
+# Пример ответа:
+# {"download_url": "/api/export-cache/download?file=go-offline-full-...", "filename": "..."}
+
+# 2. Скачивание готового архива
+curl -OJ http://127.0.0.1:8080/api/export-cache/download?file=go-offline-full-2024-03-12.tar.gz
 ```
 
 ### Импорт кэша
@@ -140,7 +143,7 @@ curl -X POST http://127.0.0.1:8080/api/import-cache -F archive=@go-offline-full-
 
 - `-listen` адрес HTTP-сервера (по умолчанию `:8080`)
 - `-cache` путь к папке кэша — только данные для переноса (по умолчанию `./cache`)
-- `-workdir` путь к рабочей папке — gocache, proxy, tmp (по умолчанию `./workdir`)
+- `-workdir` путь к рабочей папке — gocache, proxy, tmp, exports (по умолчанию `./workdir`)
 - `-upstream` upstream GOPROXY для загрузок (по умолчанию `https://proxy.golang.org`)
 - `-http-timeout` timeout одного запроса к upstream (по умолчанию `5m`)
 - `-go-bin` путь к бинарнику `go` (по умолчанию `go`)
