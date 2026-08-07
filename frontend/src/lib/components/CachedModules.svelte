@@ -9,6 +9,7 @@
 		showToastMessage,
 		type CachedModule,
 	} from "../stores";
+	import { copyToClipboard } from "../utils";
 
 	interface Props {
 		proxyUrl: string;
@@ -33,17 +34,17 @@
 	let depModules = $derived($modulesStore.filter((m) => !m.pinned));
 
 	async function copyGoGetCommand(module: string, version: string) {
-		try {
-			await navigator.clipboard.writeText(`go get ${module}@${version}`);
-			const key = `${module}@${version}`;
-			copiedRows[key] = true;
-			showToastMessage(`Скопировано: go get ${module}@${version}`);
-			setTimeout(() => {
-				copiedRows[key] = false;
-			}, 1000);
-		} catch (err) {
-			console.error("Copy failed", err);
+		const ok = await copyToClipboard(`go get ${module}@${version}`);
+		if (!ok) {
+			showToastMessage("Не удалось скопировать в буфер обмена");
+			return;
 		}
+		const key = `${module}@${version}`;
+		copiedRows[key] = true;
+		showToastMessage(`Скопировано: go get ${module}@${version}`);
+		setTimeout(() => {
+			copiedRows[key] = false;
+		}, 1000);
 	}
 
 	async function handleUnpin(module: string, version: string) {
