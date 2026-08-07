@@ -60,6 +60,11 @@ func (s *CacheService) ExportCache(w io.Writer, incremental bool) error {
 }
 
 func (s *CacheService) ImportCache(r io.Reader) (int, error) {
+	// Import перезаписывает user-packages.json целиком содержимым архива,
+	// поэтому сохраняем локальные закрепления заранее и доливаем их обратно
+	// после импорта, чтобы не терять пины, которых не было на машине-источнике.
+	localPins := s.pinnedRepo.List()
+
 	n, err := s.cacheRepo.Import(r)
 	if err != nil {
 		return n, err
@@ -69,6 +74,11 @@ func (s *CacheService) ImportCache(r io.Reader) (int, error) {
 	// соответствовало тому, что записано на диске.
 	if reloadErr := s.pinnedRepo.Reload(); reloadErr != nil {
 		return n, fmt.Errorf("imported %d files but failed to reload pinned packages: %w", n, reloadErr)
+	}
+	if len(localPins) > 0 {
+		if mergeErr := s.pinnedRepo.MergeEntries(localPins); mergeErr != nil {
+			return n, fmt.Errorf("imported %d files but failed to merge local pinned packages: %w", n, mergeErr)
+		}
 	}
 	return n, nil
 }

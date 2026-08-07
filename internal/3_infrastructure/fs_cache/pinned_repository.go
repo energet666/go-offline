@@ -159,3 +159,24 @@ func (r *pinnedRepository) List() []cache.PinnedEntry {
 func (r *pinnedRepository) Reload() error {
 	return r.load()
 }
+
+func (r *pinnedRepository) MergeEntries(entries []cache.PinnedEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pkgs == nil {
+		r.pkgs = make(map[string]cache.PinnedEntry)
+	}
+	changed := false
+	for _, e := range entries {
+		key := e.Module + "@" + e.Version
+		if _, exists := r.pkgs[key]; exists {
+			continue
+		}
+		r.pkgs[key] = e
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return r.saveLocked()
+}
