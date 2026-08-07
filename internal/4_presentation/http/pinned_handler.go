@@ -10,6 +10,24 @@ func (s *Server) handlePinned(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		entries := s.pinnedRepo.List()
 		writeJSON(w, http.StatusOK, entries)
+	case http.MethodPost:
+		var req struct {
+			Module  string `json:"module"`
+			Version string `json:"version"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if req.Module == "" || req.Version == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "module and version required"})
+			return
+		}
+		if err := s.pinnedRepo.Pin(req.Module, req.Version); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		var req struct {
 			Module  string `json:"module"`

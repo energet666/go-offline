@@ -43,6 +43,20 @@ export async function loadModules(query?: string) {
 	}
 }
 
+export async function pinModule(module: string, version: string) {
+	try {
+		await fetchJSON("/api/pinned", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ module, version }),
+		});
+		await loadModules();
+	} catch (err) {
+		console.error("Failed to pin module", err);
+		throw err;
+	}
+}
+
 export async function unpinModule(module: string, version: string) {
 	try {
 		await fetchJSON("/api/pinned", {
