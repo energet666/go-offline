@@ -2,11 +2,11 @@ package httphandlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,19 +53,16 @@ func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string)
 	return pkgPath, nil
 }
 
-// resolveVersionFromCache finds the latest cached version of modPath by scanning
-// the proxy cache directory for .info files.
-func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
-	escapedPath, err := module.EscapePath(modPath)
-	if err != nil {
-		return "", err
-	}
-	versionDir := filepath.Join(s.proxyBaseDir(), filepath.FromSlash(escapedPath), "@v")
+// cachedVersions returns every version of a module present in the proxy cache,
+// sorted ascending by semver. escapedModulePath is the proxy-escaped path, as
+// it appears in the request and on disk.
+func (s *Server) cachedVersions(escapedModulePath string) []string {
+	versionDir := filepath.Join(s.proxyBaseDir(), filepath.FromSlash(escapedModulePath), "@v")
 	entries, err := os.ReadDir(versionDir)
 	if err != nil {
-		return "", err
+		return nil
 	}
-	var best string
+	versions := make([]string, 0, len(entries))
 	for _, ent := range entries {
 		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
 			continue
@@ -75,14 +72,12 @@ func (s *Server) resolveVersionFromCache(modPath string) (string, error) {
 		if err != nil {
 			ver = escapedVer
 		}
-		if best == "" || semver.Compare(ver, best) > 0 {
-			best = ver
-		}
+		versions = append(versions, ver)
 	}
-	if best == "" {
-		return "", errors.New("no cached versions found")
-	}
-	return best, nil
+	sort.Slice(versions, func(i, j int) bool {
+		return semver.Compare(versions[i], versions[j]) < 0
+	})
+	return versions
 }
 
 func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +103,18 @@ func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Answer /@v/list from the cache instead of serving the "list" file the go
+	// tool sometimes leaves there: that file enumerates every version upstream
+	// has, so an offline client would resolve @latest to something we never
+	// downloaded and then 404 on the .info. Without an answer here go cannot
+	// resolve @latest at all — it does not fall back to the /@latest endpoint.
+	if strings.HasSuffix(rel, "/@v/list") {
+		if s.serveVersionListFromCache(w, r, strings.TrimSuffix(rel, "/@v/list")) {
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 	target := filepath.Join(s.proxyBaseDir(), filepath.FromSlash(rel))
 	if st, err := os.Stat(target); err == nil && !st.IsDir() {
 		http.ServeFile(w, r, target)
@@ -117,49 +124,53 @@ func (s *Server) ServeProxyFile(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// serveVersionListFromCache answers the /@v/list endpoint with the versions of
+// the module that are actually in the cache.
+func (s *Server) serveVersionListFromCache(w http.ResponseWriter, r *http.Request, escapedModulePath string) bool {
+	versions := s.cachedVersions(escapedModulePath)
+	if len(versions) == 0 {
+		return false
+	}
+	var list strings.Builder
+	for _, version := range versions {
+		// Upstream proxies leave pseudo-versions out of the list, and go only
+		// ever reaches them through an exact request anyway.
+		if module.IsPseudoVersion(version) {
+			continue
+		}
+		list.WriteString(version)
+		list.WriteString("\n")
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
+	http.ServeContent(w, r, "list", time.Time{}, strings.NewReader(list.String()))
+	return true
+}
+
 func (s *Server) serveLatestFromCache(w http.ResponseWriter, r *http.Request, escapedModulePath string) bool {
-	type latestCandidate struct {
-		version string
-		body    []byte
+	versions := s.cachedVersions(escapedModulePath)
+	if len(versions) == 0 {
+		return false
+	}
+	// Same preference go applies to the version list: the newest release, and
+	// only if there is none, the newest pre-release or pseudo-version.
+	best := versions[len(versions)-1]
+	for i := len(versions) - 1; i >= 0; i-- {
+		if semver.Prerelease(versions[i]) == "" {
+			best = versions[i]
+			break
+		}
 	}
 
-	base := s.proxyBaseDir()
-	var best *latestCandidate
-
-	versionDir := filepath.Join(base, filepath.FromSlash(escapedModulePath), "@v")
-	entries, err := os.ReadDir(versionDir)
+	escapedVersion, err := module.EscapeVersion(best)
 	if err != nil {
 		return false
 	}
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".info") {
-			continue
-		}
-
-		escapedVersion := strings.TrimSuffix(ent.Name(), ".info")
-		version, err := module.UnescapeVersion(escapedVersion)
-		if err != nil {
-			version = escapedVersion
-		}
-
-		infoPath := filepath.Join(versionDir, ent.Name())
-		body, err := os.ReadFile(infoPath)
-		if err != nil {
-			continue
-		}
-
-		if best == nil || semver.Compare(version, best.version) > 0 {
-			best = &latestCandidate{
-				version: version,
-				body:    body,
-			}
-		}
-	}
-
-	if best == nil {
+	body, err := os.ReadFile(filepath.Join(s.proxyBaseDir(), filepath.FromSlash(escapedModulePath), "@v", escapedVersion+".info"))
+	if err != nil {
 		return false
 	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	http.ServeContent(w, r, "@latest", time.Time{}, strings.NewReader(string(best.body)))
+	http.ServeContent(w, r, "@latest", time.Time{}, strings.NewReader(string(body)))
 	return true
 }
