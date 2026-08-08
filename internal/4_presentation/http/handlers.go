@@ -126,6 +126,7 @@ func (s *Server) startDownload(kind string, work func(ctx context.Context, logf 
 	s.dlState.Error = ""
 	s.dlState.Message = kind
 	s.dlState.Logs = []string{}
+	s.dlState.droppedLogs = 0
 	s.dlState.StartedAt = time.Now().Format(time.RFC3339)
 	s.dlState.FinishedAt = ""
 	s.dlState.mu.Unlock()
@@ -203,22 +204,17 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		req.Module = resolvedModule
 	}
 
-	// Pin the module.
-	if err := s.pinnedRepo.Pin(req.Module, req.Version); err != nil {
-		log.Printf("warn: pin package: %v", err)
-	}
-
 	err := s.startDownload("module: "+req.Module, func(ctx context.Context, logf func(string, ...any)) error {
 		logf("start module=%s version=%s recursive=%t", req.Module, req.Version, req.Recursive)
-		if err := s.downloader.DownloadModule(ctx, req.Module, req.Version, req.Recursive, logf); err != nil {
+		resolvedVersion, err := s.downloader.DownloadModule(ctx, req.Module, req.Version, req.Recursive, logf)
+		if err != nil {
 			return err
 		}
-		// Resolve pinned version if "latest" was requested.
-		if strings.TrimSpace(req.Version) == "" {
-			if resolved, err := s.resolveVersionFromCache(req.Module); err == nil && resolved != "" {
-				logf("resolved pinned version %s -> %s", req.Module, resolved)
-				s.pinnedRepo.ResolvePinnedLatest(req.Module, resolved)
-			}
+		// Pin only once the module is really in the cache, and with the version
+		// the request resolved to rather than a "latest" placeholder — a typo
+		// in the module name would otherwise stay pinned forever.
+		if err := s.pinnedRepo.Pin(req.Module, resolvedVersion); err != nil {
+			logf("warn: pin module: %v", err)
 		}
 		return nil
 	})
@@ -250,16 +246,19 @@ func (s *Server) handlePrefetchGoMod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pin all requires.
-	for _, r := range requires {
-		if err := s.pinnedRepo.Pin(r.Path, r.Version); err != nil {
-			log.Printf("warn: pin package %s@%s: %v", r.Path, r.Version, err)
-		}
-	}
-
 	dlErr := s.startDownload("go.mod", func(ctx context.Context, logf func(string, ...any)) error {
 		logf("start requires=%d recursive=%t", len(requires), req.Recursive)
-		return s.downloader.DownloadGoMod(ctx, req.GoMod, req.Recursive, logf)
+		if err := s.downloader.DownloadGoMod(ctx, req.GoMod, req.Recursive, logf); err != nil {
+			return err
+		}
+		// Pin only after a successful download, so a go.mod that fails to
+		// resolve does not leave its requirements pinned.
+		for _, m := range requires {
+			if err := s.pinnedRepo.Pin(m.Path, m.Version); err != nil {
+				logf("warn: pin %s@%s: %v", m.Path, m.Version, err)
+			}
+		}
+		return nil
 	})
 	if dlErr != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": dlErr.Error()})

@@ -29,8 +29,6 @@ type PinnedRepository interface {
 	Unpin(module, version string) error
 	// IsPinned проверяет, закреплен ли указанный модуль и версия
 	IsPinned(module, version string) bool
-	// ResolvePinnedLatest обновляет (разрешает) версию 'latest' до конкретной загруженной версии (resolvedVersion)
-	ResolvePinnedLatest(module, resolvedVersion string)
 	// List возвращает список всех закрепленных модулей
 	List() []PinnedEntry
 	// Reload перечитывает данные закреплённых пакетов с диска (например, после импорта архива)

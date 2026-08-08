@@ -11,16 +11,27 @@ import (
 	"go-offline/internal/3_infrastructure/gotool"
 )
 
+const (
+	// maxLogLines caps how much of a job's output is kept in memory: '-x'
+	// tracing is verbose enough that a large module graph produces tens of
+	// thousands of lines.
+	maxLogLines = 1000
+	// headLogLines are never dropped, so the beginning of the job — target,
+	// resolved version, first commands — stays visible however long it runs.
+	headLogLines = 200
+)
+
 // downloadState tracks the current background download operation.
 type downloadState struct {
-	mu         sync.Mutex
-	cancel     context.CancelFunc
-	Status     string   `json:"status"` // "idle", "running", "done", "error"
-	Error      string   `json:"error,omitempty"`
-	Message    string   `json:"message,omitempty"`
-	Logs       []string `json:"logs"`
-	StartedAt  string   `json:"started_at,omitempty"`
-	FinishedAt string   `json:"finished_at,omitempty"`
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	droppedLogs int
+	Status      string   `json:"status"` // "idle", "running", "done", "error"
+	Error       string   `json:"error,omitempty"`
+	Message     string   `json:"message,omitempty"`
+	Logs        []string `json:"logs"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	FinishedAt  string   `json:"finished_at,omitempty"`
 }
 
 // downloadSnapshot is a mutex-free copy of downloadState for JSON serialization.
@@ -38,19 +49,33 @@ func (ds *downloadState) logf(format string, args ...any) {
 	defer ds.mu.Unlock()
 	line := fmt.Sprintf("%s %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
 	ds.Logs = append(ds.Logs, line)
-	if len(ds.Logs) > 300 {
-		ds.Logs = ds.Logs[len(ds.Logs)-300:]
+	if len(ds.Logs) > maxLogLines {
+		// Drop from the middle: the head explains what the job is doing, the
+		// tail is where it currently is.
+		drop := len(ds.Logs) - maxLogLines
+		ds.droppedLogs += drop
+		ds.Logs = append(ds.Logs[:headLogLines], ds.Logs[headLogLines+drop:]...)
 	}
 }
 
 func (ds *downloadState) snapshot() downloadSnapshot {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
+
+	logs := make([]string, 0, len(ds.Logs)+1)
+	if ds.droppedLogs > 0 && len(ds.Logs) > headLogLines {
+		logs = append(logs, ds.Logs[:headLogLines]...)
+		logs = append(logs, fmt.Sprintf("… пропущено строк: %d …", ds.droppedLogs))
+		logs = append(logs, ds.Logs[headLogLines:]...)
+	} else {
+		logs = append(logs, ds.Logs...)
+	}
+
 	return downloadSnapshot{
 		Status:     ds.Status,
 		Error:      ds.Error,
 		Message:    ds.Message,
-		Logs:       append([]string(nil), ds.Logs...),
+		Logs:       logs,
 		StartedAt:  ds.StartedAt,
 		FinishedAt: ds.FinishedAt,
 	}
