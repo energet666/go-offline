@@ -193,18 +193,29 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A pasted "path@version" in the module field is accepted rather than taken
+	// as part of the path.
+	modPath, modVersion, err := splitModuleQuery(req.Module, req.Version)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	req.Module, req.Version = modPath, modVersion
+
 	// Resolve package path -> module path before pinning or starting the download.
 	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 30*time.Second)
 	resolvedModule, resolveErr := s.resolveModulePath(resolveCtx, req.Module, req.Version)
 	resolveCancel()
 	if resolveErr != nil {
-		log.Printf("warn: resolve module path %s: %v", req.Module, resolveErr)
-	} else if resolvedModule != req.Module {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("некорректный путь модуля %q: %v", req.Module, resolveErr)})
+		return
+	}
+	if resolvedModule != req.Module {
 		log.Printf("info: resolved package path %s -> module %s", req.Module, resolvedModule)
 		req.Module = resolvedModule
 	}
 
-	err := s.startDownload("module: "+req.Module, func(ctx context.Context, logf func(string, ...any)) error {
+	err = s.startDownload("module: "+req.Module, func(ctx context.Context, logf func(string, ...any)) error {
 		logf("start module=%s version=%s recursive=%t", req.Module, req.Version, req.Recursive)
 		resolvedVersion, err := s.downloader.DownloadModule(ctx, req.Module, req.Version, req.Recursive, logf)
 		if err != nil {

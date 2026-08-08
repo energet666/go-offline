@@ -8,8 +8,22 @@
 	let prefetchLog = $state<string[]>([]);
 	let isRunning = $derived($isDownloadingStore || prefetchStatus.includes("[running]"));
 
+	// A path pasted as "module@version" (how go get spells it) moves its version
+	// into the version field instead of being sent as part of the path.
+	function splitPastedVersion() {
+		const at = moduleInput.indexOf("@");
+		if (at < 0) return;
+		const version = moduleInput.slice(at + 1).trim();
+		const path = moduleInput.slice(0, at).trim();
+		if (!path || !version) return;
+		if (versionInput.trim() && versionInput.trim() !== version) return;
+		moduleInput = path;
+		versionInput = version;
+	}
+
 	async function startPrefetch() {
 		if ($isDownloadingStore) return;
+		splitPastedVersion();
 		prefetchStatus = "Запуск загрузки...";
 		prefetchLog = ["Запуск..."];
 		try {
@@ -49,6 +63,7 @@
 				placeholder="github.com/pkg/errors"
 				class="input input-bordered w-full bg-base-200/50"
 				bind:value={moduleInput}
+				onblur={splitPastedVersion}
 				disabled={isRunning}
 			/>
 		</div>

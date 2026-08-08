@@ -2,6 +2,7 @@ package httphandlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,12 +15,44 @@ import (
 	"golang.org/x/mod/semver"
 )
 
+// splitModuleQuery accepts a "path@version" query in the module field, which is
+// how a module is spelled everywhere else (go get, the copy button in the UI),
+// and reports the path and version separately. An empty version field takes the
+// version from the query; a filled one has to agree with it, because silently
+// picking either would download something other than what was asked for.
+func splitModuleQuery(modQuery, version string) (string, string, error) {
+	path, queryVersion, found := strings.Cut(modQuery, "@")
+	path = strings.TrimSpace(path)
+	queryVersion = strings.TrimSpace(queryVersion)
+	if !found {
+		return path, version, nil
+	}
+	if path == "" {
+		return "", "", fmt.Errorf("не указан путь модуля перед @ в %q", modQuery)
+	}
+	if queryVersion == "" {
+		return "", "", fmt.Errorf("не указана версия после @ в %q", modQuery)
+	}
+	if version != "" && version != queryVersion {
+		return "", "", fmt.Errorf("версия указана дважды и по-разному: %q и %q", queryVersion, version)
+	}
+	return path, queryVersion, nil
+}
+
 // resolveModulePath resolves a package path to the root module path by probing
 // the upstream GOPROXY. It tries successively shorter path prefixes (from
 // longest to shortest) until it finds one that the proxy recognises as a valid
 // module. If the path itself is already a valid module path it is returned
 // unchanged.
+//
+// The path must be a syntactically valid import path: a malformed one has no
+// valid prefix to fall back to either, and shortening it until something
+// happens to resolve would quietly download a different module (e.g.
+// "fyne.io/fyne/v2@latest" pasted as a path resolving to fyne.io/fyne v1).
 func (s *Server) resolveModulePath(ctx context.Context, pkgPath, version string) (string, error) {
+	if err := module.CheckImportPath(pkgPath); err != nil {
+		return "", err
+	}
 	parts := strings.Split(pkgPath, "/")
 	for i := len(parts); i >= 1; i-- {
 		candidate := strings.Join(parts[:i], "/")
