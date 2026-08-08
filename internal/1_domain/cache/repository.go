@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"errors"
 	"io"
 )
@@ -38,4 +39,11 @@ type PinnedRepository interface {
 	// и сохраняет результат на диск. Используется, чтобы не терять локальные закрепления
 	// при импорте архива, который перезаписывает user-packages.json целиком.
 	MergeEntries(entries []PinnedEntry) error
+}
+
+// UpdateChecker проверяет, появились ли в апстриме версии новее закреплённых.
+type UpdateChecker interface {
+	// CheckUpdates возвращает отчёт по всем переданным закреплённым модулям.
+	// Если force=false, допускается отдать результат предыдущей проверки из кэша.
+	CheckUpdates(ctx context.Context, entries []PinnedEntry, force bool) (UpdatesReport, error)
 }

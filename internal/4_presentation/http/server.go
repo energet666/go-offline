@@ -57,17 +57,18 @@ func (ds *downloadState) snapshot() downloadSnapshot {
 }
 
 type Server struct {
-	cacheDir    string
-	workDir     string
-	upstream    string
-	httpClient  *http.Client
-	downloader  *gotool.Downloader
-	cacheRepo   cache.CacheRepository
-	pinnedRepo  cache.PinnedRepository
-	proxyLogsMu sync.Mutex
-	proxyLogs   []string
-	proxyLogSeq uint64
-	dlState     downloadState
+	cacheDir      string
+	workDir       string
+	upstream      string
+	httpClient    *http.Client
+	downloader    *gotool.Downloader
+	cacheRepo     cache.CacheRepository
+	pinnedRepo    cache.PinnedRepository
+	updateChecker cache.UpdateChecker
+	proxyLogsMu   sync.Mutex
+	proxyLogs     []string
+	proxyLogSeq   uint64
+	dlState       downloadState
 }
 
 type prefetchRequest struct {
@@ -87,24 +88,26 @@ type modReq struct {
 }
 
 type ServerConfig struct {
-	CacheDir   string
-	WorkDir    string
-	Upstream   string
-	HttpClient *http.Client
-	Downloader *gotool.Downloader
-	CacheRepo  cache.CacheRepository
-	PinnedRepo cache.PinnedRepository
+	CacheDir      string
+	WorkDir       string
+	Upstream      string
+	HttpClient    *http.Client
+	Downloader    *gotool.Downloader
+	CacheRepo     cache.CacheRepository
+	PinnedRepo    cache.PinnedRepository
+	UpdateChecker cache.UpdateChecker
 }
 
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		cacheDir:   cfg.CacheDir,
-		workDir:    cfg.WorkDir,
-		upstream:   cfg.Upstream,
-		httpClient: cfg.HttpClient,
-		downloader: cfg.Downloader,
-		cacheRepo:  cfg.CacheRepo,
-		pinnedRepo: cfg.PinnedRepo,
+		cacheDir:      cfg.CacheDir,
+		workDir:       cfg.WorkDir,
+		upstream:      cfg.Upstream,
+		httpClient:    cfg.HttpClient,
+		downloader:    cfg.Downloader,
+		cacheRepo:     cfg.CacheRepo,
+		pinnedRepo:    cfg.PinnedRepo,
+		updateChecker: cfg.UpdateChecker,
 		dlState: downloadState{
 			Status: "idle",
 			Logs:   make([]string, 0),
@@ -121,6 +124,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/download-cancel", s.handleDownloadCancel)
 	mux.HandleFunc("/api/proxy-requests", s.handleProxyRequests)
 	mux.HandleFunc("/api/pinned", s.handlePinned)
+	mux.HandleFunc("/api/pinned/updates", s.handlePinnedUpdates)
 	mux.HandleFunc("/api/export-cache/prepare", s.handleExportPrepare)
 	mux.HandleFunc("/api/export-cache/download", s.handleExportDownload)
 	mux.HandleFunc("/api/import-cache", s.handleImportCache)

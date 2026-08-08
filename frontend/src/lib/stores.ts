@@ -44,6 +44,41 @@ export async function loadModules(query?: string) {
 	}
 }
 
+// Updates for pinned packages (requires internet access to the upstream proxy)
+export interface ModuleUpdate {
+	module: string;
+	version: string;
+	latest?: string;
+	published_at?: string;
+	next_major_module?: string;
+	next_major_version?: string;
+	has_update: boolean;
+	error?: string;
+}
+
+// key: "module@version" of the pinned entry
+export const updatesStore = writable<Record<string, ModuleUpdate>>({});
+export const updatesCheckedAtStore = writable("");
+export const updatesLoadingStore = writable(false);
+
+export async function checkUpdates(force = false) {
+	updatesLoadingStore.set(true);
+	try {
+		const data = await fetchJSON(
+			force ? "/api/pinned/updates?force=1" : "/api/pinned/updates"
+		);
+		const byKey: Record<string, ModuleUpdate> = {};
+		for (const u of data.updates || []) {
+			byKey[`${u.module}@${u.version}`] = u;
+		}
+		updatesStore.set(byKey);
+		updatesCheckedAtStore.set(data.checked_at || "");
+		return data;
+	} finally {
+		updatesLoadingStore.set(false);
+	}
+}
+
 export async function pinModule(module: string, version: string) {
 	try {
 		await fetchJSON("/api/pinned", {

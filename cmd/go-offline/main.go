@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go-offline/internal/3_infrastructure/fs_cache"
+	"go-offline/internal/3_infrastructure/goproxy"
 	"go-offline/internal/3_infrastructure/gotool"
 	httphandlers "go-offline/internal/4_presentation/http"
 )
@@ -22,6 +23,7 @@ func main() {
 		upstream    = flag.String("upstream", "https://proxy.golang.org", "upstream GOPROXY")
 		httpTimeout = flag.Duration("http-timeout", 5*time.Minute, "HTTP timeout for upstream requests")
 		goBin       = flag.String("go-bin", "go", "path to go binary")
+		updatesTTL  = flag.Duration("updates-ttl", 30*time.Minute, "how long to reuse the pinned-modules update check result")
 	)
 	flag.Parse()
 
@@ -46,7 +48,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(*workDir, "tmp"), 0o755); err != nil {
 		log.Fatalf("create tmp dir: %v", err)
 	}
-	
+
 	_ = os.RemoveAll(filepath.Join(*workDir, "exports"))
 	if err := os.MkdirAll(filepath.Join(*workDir, "exports"), 0o755); err != nil {
 		log.Fatalf("create exports dir: %v", err)
@@ -59,14 +61,19 @@ func main() {
 	}
 	cacheRepo := fs_cache.NewCacheRepository(*cacheDir, *workDir)
 
+	upstreamURL := strings.TrimRight(*upstream, "/")
+	httpClient := &http.Client{Timeout: *httpTimeout}
+	updateChecker := goproxy.NewUpdateChecker(upstreamURL, httpClient, *updatesTTL)
+
 	srv := httphandlers.NewServer(httphandlers.ServerConfig{
-		CacheDir:   *cacheDir,
-		WorkDir:    *workDir,
-		Upstream:   strings.TrimRight(*upstream, "/"),
-		HttpClient: &http.Client{Timeout: *httpTimeout},
-		Downloader: downloader,
-		CacheRepo:  cacheRepo,
-		PinnedRepo: pinnedRepo,
+		CacheDir:      *cacheDir,
+		WorkDir:       *workDir,
+		Upstream:      upstreamURL,
+		HttpClient:    httpClient,
+		Downloader:    downloader,
+		CacheRepo:     cacheRepo,
+		PinnedRepo:    pinnedRepo,
+		UpdateChecker: updateChecker,
 	})
 
 	mux := http.NewServeMux()

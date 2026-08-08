@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { Pin, PinOff, Copy, Check, Archive, ChevronRight } from "lucide-svelte";
+	import {
+		Pin,
+		PinOff,
+		Copy,
+		Check,
+		Archive,
+		ChevronRight,
+		RefreshCw,
+		ArrowUp,
+		TriangleAlert,
+	} from "lucide-svelte";
 	import {
 		modulesStore,
 		modulesQueryStore,
@@ -8,9 +18,15 @@
 		pinModule,
 		unpinModule,
 		showToastMessage,
+		checkUpdates,
+		updatesStore,
+		updatesCheckedAtStore,
+		updatesLoadingStore,
+		isDownloadingStore,
 		type CachedModule,
+		type ModuleUpdate,
 	} from "../stores";
-	import { copyToClipboard } from "../utils";
+	import { copyToClipboard, fetchJSON, watchDownload } from "../utils";
 
 	interface Props {
 		proxyUrl: string;
@@ -66,6 +82,78 @@
 		}
 	}
 
+	let updatesError = $state("");
+	// Считаем только те обновления, которые ещё не скачаны в кэш.
+	let updatesAvailable = $derived(
+		Object.values($updatesStore).filter(isActionable).length,
+	);
+
+	async function handleCheckUpdates() {
+		updatesError = "";
+		try {
+			await checkUpdates(true);
+		} catch (e: any) {
+			updatesError = e.message;
+			showToastMessage("Не удалось проверить обновления: " + e.message);
+		}
+	}
+
+	// Обновление уже скачано, если версия из апстрима лежит в кэше.
+	function isCached(module: string, version?: string) {
+		if (!version) return false;
+		return $modulesStore.some((m) => m.module === module && m.version === version);
+	}
+
+	function updateFor(row: CachedModule): ModuleUpdate | undefined {
+		return $updatesStore[`${row.module}@${row.version}`];
+	}
+
+	function isActionable(u: ModuleUpdate) {
+		const newerPending =
+			u.has_update &&
+			!!u.latest &&
+			u.latest !== u.version &&
+			!isCached(u.module, u.latest);
+		const majorPending =
+			!!u.next_major_module &&
+			!!u.next_major_version &&
+			!isCached(u.next_major_module, u.next_major_version);
+		return newerPending || majorPending;
+	}
+
+	async function downloadVersion(module: string, version: string) {
+		if ($isDownloadingStore) {
+			showToastMessage("Дождитесь окончания текущей загрузки");
+			return;
+		}
+		try {
+			await fetchJSON("/api/prefetch", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ module, version, recursive: true }),
+			});
+			showToastMessage(`Загружается ${module}@${version}`);
+			watchDownload(
+				() => {},
+				() => {},
+				async () => {
+					showToastMessage(`${module}@${version} загружен`);
+					await loadModules();
+					// Набор закреплённых изменился — отчёт пересоберётся сам.
+					checkUpdates().catch(() => {});
+				},
+			);
+		} catch (e: any) {
+			showToastMessage("Ошибка загрузки: " + e.message);
+		}
+	}
+
+	function formatDate(value?: string) {
+		if (!value) return "";
+		const d = new Date(value);
+		return isNaN(d.getTime()) ? value : d.toLocaleDateString();
+	}
+
 	onMount(() => {
 		loadModules($modulesQueryStore);
 	});
@@ -105,12 +193,34 @@
 
 		<!-- Pinned / user-requested packages -->
 		{#if pinnedModules.length > 0 || $modulesStore.length === 0}
-			<div class="mb-1 flex items-center gap-2">
+			<div class="mb-1 flex items-center gap-2 flex-wrap">
 				<Pin size={14} class="text-primary opacity-70" />
 				<span class="text-sm font-semibold opacity-70 uppercase tracking-wider">
 					Запрошенные пакеты
 				</span>
 				<span class="badge badge-primary badge-sm">{pinnedModules.length}</span>
+				<div class="ml-auto flex items-center gap-2">
+					{#if updatesError}
+						<span class="text-xs text-error opacity-80">{updatesError}</span>
+					{:else if $updatesCheckedAtStore}
+						<span class="text-xs opacity-50">
+							{updatesAvailable > 0
+								? `Есть обновления: ${updatesAvailable}`
+								: "Все версии актуальны"}
+						</span>
+					{/if}
+					<button
+						class="btn btn-xs btn-outline gap-1 opacity-80 hover:opacity-100"
+						onclick={handleCheckUpdates}
+						disabled={$updatesLoadingStore || pinnedModules.length === 0}
+					>
+						<RefreshCw
+							size={12}
+							class={$updatesLoadingStore ? "animate-spin" : ""}
+						/>
+						Проверить обновления
+					</button>
+				</div>
 			</div>
 			<div
 				class="overflow-visible rounded-xl border border-primary/20 bg-primary/5 mb-4 [&_thead_th:first-child]:rounded-tl-[11px] [&_thead_th:last-child]:rounded-tr-[11px] [&_tbody_tr:last-child_td:first-child]:rounded-bl-[11px] [&_tbody_tr:last-child_td:last-child]:rounded-br-[11px]"
@@ -119,7 +229,7 @@
 					<thead class="bg-primary/10 text-base-content/80">
 						<tr>
 							<th class="w-10"></th>
-							<th>Module</th>
+							<th class="w-[45%]">Module</th>
 							<th>Version</th>
 							<th>Time</th>
 							<th class="w-16"></th>
@@ -128,6 +238,7 @@
 					<tbody>
 						{#each pinnedModules as row (row.module + "@" + row.version)}
 							{@const key = `${row.module}@${row.version}`}
+							{@const upd = updateFor(row)}
 							<tr
 								class="transition-colors hover:bg-base-content/5 {copiedRows[
 									key
@@ -156,8 +267,71 @@
 									{row.module}
 								</td>
 								<td>
-									<div class="badge badge-primary badge-sm border-primary/20">
-										{row.version}
+									<div class="flex items-center gap-1.5 flex-wrap">
+										<div class="badge badge-primary badge-sm border-primary/20">
+											{row.version}
+										</div>
+										{#if upd?.latest && upd.latest !== row.version && upd.has_update}
+											{#if isCached(row.module, upd.latest)}
+												<div
+													class="badge badge-ghost badge-sm gap-1 tooltip whitespace-nowrap"
+													data-tip="Новая версия уже в кэше"
+												>
+													<Check size={11} class="text-success" />
+													{upd.latest}
+												</div>
+											{:else}
+												<button
+													class="badge badge-warning badge-sm gap-1 tooltip whitespace-nowrap cursor-pointer"
+													data-tip="Доступна {upd.latest}{upd.published_at
+														? ' от ' + formatDate(upd.published_at)
+														: ''} — нажмите, чтобы скачать"
+													disabled={$isDownloadingStore}
+													onclick={(e) => {
+														e.stopPropagation();
+														downloadVersion(row.module, upd.latest!);
+													}}
+												>
+													<ArrowUp size={11} />
+													{upd.latest}
+												</button>
+											{/if}
+										{/if}
+										{#if upd?.next_major_module && upd.next_major_version}
+											{#if isCached(upd.next_major_module, upd.next_major_version)}
+												<div
+													class="badge badge-ghost badge-sm gap-1 tooltip whitespace-nowrap"
+													data-tip="Мажор {upd.next_major_module} уже в кэше"
+												>
+													<Check size={11} class="text-success" />
+													{upd.next_major_version}
+												</div>
+											{:else}
+												<button
+													class="badge badge-secondary badge-sm gap-1 tooltip whitespace-nowrap cursor-pointer"
+													data-tip="Новый мажор: {upd.next_major_module}@{upd.next_major_version} — нажмите, чтобы скачать"
+													disabled={$isDownloadingStore}
+													onclick={(e) => {
+														e.stopPropagation();
+														downloadVersion(
+															upd.next_major_module!,
+															upd.next_major_version!,
+														);
+													}}
+												>
+													<ArrowUp size={11} />
+													{upd.next_major_version}
+												</button>
+											{/if}
+										{/if}
+										{#if upd?.error}
+											<span
+												class="opacity-40 tooltip inline-flex items-center"
+												data-tip="Проверка не удалась: {upd.error}"
+											>
+												<TriangleAlert size={12} />
+											</span>
+										{/if}
 									</div>
 								</td>
 								<td class="text-xs opacity-60">
