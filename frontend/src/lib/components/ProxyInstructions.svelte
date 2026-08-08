@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Copy, Check, ChevronRight } from "lucide-svelte";
 	import { showToastMessage } from "../stores";
+	import { copyToClipboard } from "../utils";
 	interface Props {
 		proxyUrl: string;
 	}
@@ -22,20 +23,21 @@
 	}
 
 	async function copyCommand(text: string, type: "connect" | "disconnect") {
-		try {
-			await navigator.clipboard.writeText(text);
-			if (type === "connect") copiedConnect = true;
-			else copiedDisconnect = true;
-
-			showToastMessage("Скопировано: " + text);
-
-			setTimeout(() => {
-				if (type === "connect") copiedConnect = false;
-				else copiedDisconnect = false;
-			}, 1000);
-		} catch (err) {
-			console.error("Copy failed", err);
+		const ok = await copyToClipboard(text);
+		if (!ok) {
+			showToastMessage("Не удалось скопировать в буфер обмена");
+			return;
 		}
+
+		if (type === "connect") copiedConnect = true;
+		else copiedDisconnect = true;
+
+		showToastMessage("Скопировано: " + text);
+
+		setTimeout(() => {
+			if (type === "connect") copiedConnect = false;
+			else copiedDisconnect = false;
+		}, 1000);
 	}
 </script>
 

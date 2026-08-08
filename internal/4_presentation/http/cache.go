@@ -114,6 +114,11 @@ func (s *Server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Import перезаписывает user-packages.json целиком содержимым архива,
+	// поэтому сохраняем локальные закрепления заранее и доливаем их обратно
+	// после импорта, чтобы не терять пины, которых не было на машине-источнике.
+	localPins := s.pinnedRepo.List()
+
 	extractedFiles, err := s.cacheRepo.Import(file)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -127,6 +132,15 @@ func (s *Server) handleImportCache(w http.ResponseWriter, r *http.Request) {
 			"error": fmt.Sprintf("imported %d files but failed to reload pinned packages: %v", extractedFiles, reloadErr),
 		})
 		return
+	}
+
+	if len(localPins) > 0 {
+		if mergeErr := s.pinnedRepo.MergeEntries(localPins); mergeErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": fmt.Sprintf("imported %d files but failed to merge local pinned packages: %v", extractedFiles, mergeErr),
+			})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

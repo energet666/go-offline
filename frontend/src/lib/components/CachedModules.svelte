@@ -5,10 +5,12 @@
 		modulesStore,
 		modulesQueryStore,
 		loadModules,
+		pinModule,
 		unpinModule,
 		showToastMessage,
 		type CachedModule,
 	} from "../stores";
+	import { copyToClipboard } from "../utils";
 
 	interface Props {
 		proxyUrl: string;
@@ -33,16 +35,25 @@
 	let depModules = $derived($modulesStore.filter((m) => !m.pinned));
 
 	async function copyGoGetCommand(module: string, version: string) {
+		const ok = await copyToClipboard(`go get ${module}@${version}`);
+		if (!ok) {
+			showToastMessage("Не удалось скопировать в буфер обмена");
+			return;
+		}
+		const key = `${module}@${version}`;
+		copiedRows[key] = true;
+		showToastMessage(`Скопировано: go get ${module}@${version}`);
+		setTimeout(() => {
+			copiedRows[key] = false;
+		}, 1000);
+	}
+
+	async function handlePin(module: string, version: string) {
 		try {
-			await navigator.clipboard.writeText(`go get ${module}@${version}`);
-			const key = `${module}@${version}`;
-			copiedRows[key] = true;
-			showToastMessage(`Скопировано: go get ${module}@${version}`);
-			setTimeout(() => {
-				copiedRows[key] = false;
-			}, 1000);
-		} catch (err) {
-			console.error("Copy failed", err);
+			await pinModule(module, version);
+			showToastMessage(`${module}@${version} закреплён`);
+		} catch {
+			showToastMessage("Ошибка при закреплении пакета");
 		}
 	}
 
@@ -224,7 +235,7 @@
 								<th>Module</th>
 								<th>Version</th>
 								<th>Time</th>
-								<th class="w-10"></th>
+								<th class="w-16"></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -270,20 +281,32 @@
 										{row.time || ""}
 									</td>
 									<td>
-										<button
-											class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 tooltip"
-											data-tip="Скопировать go get"
-											onclick={(e) => {
-												e.stopPropagation();
-												copyGoGetCommand(row.module, row.version);
-											}}
-										>
-											{#if copiedRows[key]}
-												<Check size={13} class="text-success" />
-											{:else}
-												<Copy size={13} />
-											{/if}
-										</button>
+										<div class="flex gap-1 justify-end">
+											<button
+												class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 tooltip"
+												data-tip="Скопировать go get"
+												onclick={(e) => {
+													e.stopPropagation();
+													copyGoGetCommand(row.module, row.version);
+												}}
+											>
+												{#if copiedRows[key]}
+													<Check size={13} class="text-success" />
+												{:else}
+													<Copy size={13} />
+												{/if}
+											</button>
+											<button
+												class="btn btn-ghost btn-xs opacity-40 hover:opacity-80 hover:text-primary tooltip"
+												data-tip="Закрепить"
+												onclick={(e) => {
+													e.stopPropagation();
+													handlePin(row.module, row.version);
+												}}
+											>
+												<Pin size={13} />
+											</button>
+										</div>
 									</td>
 								</tr>
 							{/each}

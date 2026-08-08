@@ -34,4 +34,8 @@ type PinnedRepository interface {
 	List() []PinnedEntry
 	// Reload перечитывает данные закреплённых пакетов с диска (например, после импорта архива)
 	Reload() error
+	// MergeEntries добавляет записи, которых ещё нет в текущем списке (по module@version),
+	// и сохраняет результат на диск. Используется, чтобы не терять локальные закрепления
+	// при импорте архива, который перезаписывает user-packages.json целиком.
+	MergeEntries(entries []PinnedEntry) error
 }

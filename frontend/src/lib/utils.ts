@@ -1,25 +1,36 @@
 import { isDownloadingStore } from "./stores";
 
-export async function copyText(text: string, event: Event) {
+function copyWithExecCommand(text: string): boolean {
+	const textarea = document.createElement("textarea");
+	textarea.value = text;
+	textarea.style.position = "fixed";
+	textarea.style.opacity = "0";
+	document.body.appendChild(textarea);
+	textarea.focus();
+	textarea.select();
+	let ok = false;
 	try {
-		await navigator.clipboard.writeText(text);
-		const btn = event.target as HTMLButtonElement;
-		if (btn) {
-			const originalText = btn.innerText;
-			btn.innerText = "Скопировано!";
-			btn.classList.remove("btn-neutral");
-			btn.classList.add("btn-success");
-			setTimeout(() => {
-				btn.innerText = originalText;
-				btn.classList.remove("btn-success");
-				btn.classList.add("btn-neutral");
-			}, 2000);
-		}
-		return true;
-	} catch (err) {
-		console.error("Copy failed", err);
-		return false;
+		ok = document.execCommand("copy");
+	} catch {
+		ok = false;
 	}
+	document.body.removeChild(textarea);
+	return ok;
+}
+
+// navigator.clipboard requires a secure context (HTTPS or localhost/127.0.0.1);
+// Chrome makes it undefined or throws on any other origin, so we fall back to
+// the legacy execCommand approach to keep copy buttons working there too.
+export async function copyToClipboard(text: string): Promise<boolean> {
+	if (navigator.clipboard?.writeText) {
+		try {
+			await navigator.clipboard.writeText(text);
+			return true;
+		} catch (err) {
+			console.error("navigator.clipboard.writeText failed, falling back", err);
+		}
+	}
+	return copyWithExecCommand(text);
 }
 
 export async function fetchJSON(url: string, options?: RequestInit) {
