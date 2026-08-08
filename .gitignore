@@ -5,3 +5,6 @@
 /go-offline
 /bin
 /vendor
+
+# Локальные настройки Claude Code, у каждого свои
+/.claude/settings.local.json
