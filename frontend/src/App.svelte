@@ -216,7 +216,7 @@
 
 	<ProxyConsole />
 
-	<CachedModules {proxyUrl} />
+	<CachedModules />
 </div>
 
 <Toast />

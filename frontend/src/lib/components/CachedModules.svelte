@@ -10,6 +10,7 @@
 		RefreshCw,
 		ArrowUp,
 		TriangleAlert,
+		X,
 	} from "lucide-svelte";
 	import {
 		modulesStore,
@@ -27,12 +28,6 @@
 		type ModuleUpdate,
 	} from "../stores";
 	import { copyToClipboard, fetchJSON, watchDownload } from "../utils";
-
-	interface Props {
-		proxyUrl: string;
-	}
-
-	let { proxyUrl }: Props = $props();
 
 	let copiedRows = $state<Record<string, boolean>>({});
 	const DEPS_STORAGE_KEY = "go-offline:deps-expanded";
@@ -173,22 +168,24 @@
 >
 	<div class="card-body">
 		<h3 class="card-title text-xl font-bold">Кэшированные модули</h3>
-		<div class="my-2">
-			<div class="badge badge-success gap-2 shadow-sm font-medium">
-				GOPROXY={proxyUrl}
-			</div>
-		</div>
-		<div class="flex gap-2 items-center mb-4">
+		<div class="relative w-full max-w-xs mb-4">
 			<input
 				type="text"
 				placeholder="Поиск по module/version"
-				class="input input-bordered input-sm w-full max-w-xs bg-base-200/50"
+				class="input input-bordered input-sm w-full bg-base-200/50 pr-8"
 				bind:value={$modulesQueryStore}
 				oninput={handleSearch}
 			/>
-			<button class="btn btn-sm btn-outline opacity-80" onclick={handleClear}
-				>Очистить</button
-			>
+			{#if $modulesQueryStore}
+				<button
+					type="button"
+					aria-label="Очистить поиск"
+					class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+					onclick={handleClear}
+				>
+					<X size={14} />
+				</button>
+			{/if}
 		</div>
 
 		<!-- Pinned / user-requested packages -->
