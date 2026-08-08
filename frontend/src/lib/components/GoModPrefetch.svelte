@@ -3,7 +3,6 @@
 	import { loadModules, isDownloadingStore } from "../stores";
 
 	let gomodInput = $state("");
-	let gomodRecursive = $state(true);
 	let gomodStatus = $state("");
 	let gomodLog = $state<string[]>([]);
 	let isRunning = $derived($isDownloadingStore || gomodStatus.includes("[running]"));
@@ -74,7 +73,7 @@
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					gomod: gomodInput,
-					recursive: gomodRecursive,
+					recursive: true,
 				}),
 			});
 			gomodStatus = "[running] Загрузка запущена";
@@ -139,19 +138,6 @@
 			{#if dropError}
 				<span class="label-text-alt text-warning mt-1">{dropError}</span>
 			{/if}
-		</div>
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 mt-2">
-				<input
-					type="checkbox"
-					class="checkbox checkbox-primary checkbox-sm"
-					bind:checked={gomodRecursive}
-					disabled={isRunning}
-				/>
-				<span class="label-text text-left opacity-80"
-					>Рекурсивно обходить зависимости из зависимостей (может быть долго)</span
-				>
-			</label>
 		</div>
 		<div
 			class="card-actions justify-start items-center mt-4 border-t border-base-content/10 pt-4"

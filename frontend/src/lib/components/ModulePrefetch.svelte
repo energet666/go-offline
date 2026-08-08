@@ -4,7 +4,6 @@
 
 	let moduleInput = $state("");
 	let versionInput = $state("");
-	let recursivePrefetch = $state(true);
 	let prefetchStatus = $state("");
 	let prefetchLog = $state<string[]>([]);
 	let isRunning = $derived($isDownloadingStore || prefetchStatus.includes("[running]"));
@@ -20,7 +19,7 @@
 				body: JSON.stringify({
 					module: moduleInput.trim(),
 					version: versionInput.trim(),
-					recursive: recursivePrefetch,
+					recursive: true,
 				}),
 			});
 			prefetchStatus = "[running] Загрузка запущена";
@@ -65,19 +64,6 @@
 				bind:value={versionInput}
 				disabled={isRunning}
 			/>
-		</div>
-		<div class="form-control">
-			<label class="label cursor-pointer justify-start gap-3 mt-2">
-				<input
-					type="checkbox"
-					class="checkbox checkbox-primary checkbox-sm"
-					bind:checked={recursivePrefetch}
-					disabled={isRunning}
-				/>
-				<span class="label-text opacity-80"
-					>Скачать рекурсивно зависимости из go.mod</span
-				>
-			</label>
 		</div>
 		<div
 			class="card-actions justify-start items-center mt-4 border-t border-base-content/10 pt-4"
