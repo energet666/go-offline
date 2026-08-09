@@ -19,10 +19,13 @@ internal/
 ├── 1_domain/cache/            # Models + ports (interfaces). Standard library only.
 │   ├── models.go              # Module, PinnedEntry, ModuleUpdate, UpdatesReport
 │   └── repository.go          # CacheRepository, PinnedRepository, UpdateChecker
+├── 1_domain/selfupdate/       # Updating the app itself: Build, Release, Status + ports
 ├── 3_infrastructure/          # Adapters: the file system, the network, the go CLI.
 │   ├── fs_cache/              # CacheRepository + PinnedRepository over JSON/tar.gz on disk
+│   ├── ghrelease/             # ReleaseSource: reads latest.json published next to the binaries
 │   ├── goproxy/               # UpdateChecker: asks the upstream proxy for @latest
-│   └── gotool/                # Downloader: wraps the 'go' CLI (mod download / list -m / mod graph)
+│   ├── gotool/                # Downloader: wraps the 'go' CLI (mod download / list -m / mod graph)
+│   └── selfinstall/           # Installer: swaps the running binary and restarts the process
 └── 4_presentation/http/       # HTTP handlers, GOPROXY file serving, embedded UI
 ```
 
@@ -58,7 +61,7 @@ There is **no `2_application` layer**: the use cases are thin enough that they l
     2.  Implement the adapter in `3_infrastructure` (a new package per external concern).
     3.  Expose it over HTTP in `4_presentation/http` — one file per feature area (`cache.go`, `pinned_handler.go`, `updates_handler.go`, …), registered in `server.go:RegisterRoutes`.
     4.  Wire it in `cmd/go-offline/main.go`.
--   **Background work**: goes through `Server.startDownload`. It is deliberately a single slot — do not add a second concurrent job path without deciding what the UI's status panel should show.
+-   **Background work**: goes through `Server.startDownload`. It is deliberately a single slot — do not add a second concurrent job path without deciding what the UI's status panel should show. Self-update shares that slot on purpose: restarting the process in the middle of a prefetch would cut the download off.
 -   **Logging inside a job**: use the `logf` passed into the work func. Never call `logf` while holding `dlState.mu` — Go mutexes are not reentrant.
 -   **Error Handling**: business errors belong in the domain (`cache.ErrNoNewFiles`); handlers translate them to status codes.
 -   **Frontend**: Svelte 5 Runes (`$state`, `$derived`, `$props`). Components in `frontend/src/lib/components/`, shared state in `stores.ts`, fetch helpers in `utils.ts`.

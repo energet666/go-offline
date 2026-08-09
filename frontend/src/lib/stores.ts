@@ -79,6 +79,20 @@ export async function checkUpdates(force = false) {
 	}
 }
 
+// Self-update of the application itself (requires internet access to GitHub)
+export interface AppBuild {
+	version: string;
+	built_at?: string;
+}
+
+export interface SelfUpdateStatus {
+	current: AppBuild;
+	latest?: AppBuild;
+	has_update: boolean;
+	can_update: boolean;
+	reason?: string;
+}
+
 export async function pinModule(module: string, version: string) {
 	try {
 		await fetchJSON("/api/pinned", {

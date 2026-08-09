@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go-offline/internal/1_domain/cache"
+	"go-offline/internal/1_domain/selfupdate"
 	"go-offline/internal/3_infrastructure/gotool"
 )
 
@@ -90,6 +91,9 @@ type Server struct {
 	cacheRepo     cache.CacheRepository
 	pinnedRepo    cache.PinnedRepository
 	updateChecker cache.UpdateChecker
+	build         selfupdate.Build
+	releaseSource selfupdate.ReleaseSource
+	installer     selfupdate.Installer
 	proxyLogsMu   sync.Mutex
 	proxyLogs     []string
 	proxyLogSeq   uint64
@@ -121,6 +125,11 @@ type ServerConfig struct {
 	CacheRepo     cache.CacheRepository
 	PinnedRepo    cache.PinnedRepository
 	UpdateChecker cache.UpdateChecker
+	// Build, ReleaseSource и Installer отвечают за обновление самого
+	// приложения. Пустые ReleaseSource/Installer просто выключают фичу.
+	Build         selfupdate.Build
+	ReleaseSource selfupdate.ReleaseSource
+	Installer     selfupdate.Installer
 }
 
 func NewServer(cfg ServerConfig) *Server {
@@ -133,6 +142,9 @@ func NewServer(cfg ServerConfig) *Server {
 		cacheRepo:     cfg.CacheRepo,
 		pinnedRepo:    cfg.PinnedRepo,
 		updateChecker: cfg.UpdateChecker,
+		build:         cfg.Build,
+		releaseSource: cfg.ReleaseSource,
+		installer:     cfg.Installer,
 		dlState: downloadState{
 			Status: "idle",
 			Logs:   make([]string, 0),
@@ -153,6 +165,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/export-cache/prepare", s.handleExportPrepare)
 	mux.HandleFunc("/api/export-cache/download", s.handleExportDownload)
 	mux.HandleFunc("/api/import-cache", s.handleImportCache)
+	mux.HandleFunc("/api/version", s.handleVersion)
+	mux.HandleFunc("/api/self-update/check", s.handleSelfUpdateCheck)
+	mux.HandleFunc("/api/self-update/apply", s.handleSelfUpdateApply)
 }
 
 // Handler returns the HTTP handler with logging middleware.

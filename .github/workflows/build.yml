@@ -67,10 +67,22 @@ jobs:
             -o dist/go-offline.exe ./cmd/go-offline
 
       # Манифест для проверки обновлений: качается как обычный файл,
-      # без лимитов GitHub API на анонимные запросы
+      # без лимитов GitHub API на анонимные запросы. Ключи assets — это
+      # GOOS/GOARCH, приложение выбирает свою строку само.
       - name: Write latest.json
         run: |
-          printf '{"version":"%s","built_at":"%s"}\n' "$VERSION" "$BUILD_TIME" > dist/latest.json
+          linux_sha="$(sha256sum dist/go-offline | cut -d' ' -f1)"
+          win_sha="$(sha256sum dist/go-offline.exe | cut -d' ' -f1)"
+          cat > dist/latest.json <<JSON
+          {
+            "version": "${VERSION}",
+            "built_at": "${BUILD_TIME}",
+            "assets": {
+              "linux/amd64":   {"file": "go-offline",     "sha256": "${linux_sha}"},
+              "windows/amd64": {"file": "go-offline.exe", "sha256": "${win_sha}"}
+            }
+          }
+          JSON
           cat dist/latest.json
 
       - uses: actions/upload-artifact@v4

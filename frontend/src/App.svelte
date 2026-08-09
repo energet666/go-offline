@@ -5,6 +5,7 @@
 	import GoModPrefetch from "./lib/components/GoModPrefetch.svelte";
 	import ProxyConsole from "./lib/components/ProxyConsole.svelte";
 	import CachedModules from "./lib/components/CachedModules.svelte";
+	import SelfUpdate from "./lib/components/SelfUpdate.svelte";
 	import Toast from "./lib/components/Toast.svelte";
 	import { showToastMessage, loadModules, unexportedCountStore } from "./lib/stores";
 
@@ -217,6 +218,8 @@
 	<ProxyConsole />
 
 	<CachedModules />
+
+	<SelfUpdate />
 </div>
 
 <Toast />
