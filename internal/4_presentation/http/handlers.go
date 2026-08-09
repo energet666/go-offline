@@ -48,8 +48,13 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// isProxyRequestPath reports whether the path is a GOPROXY protocol endpoint —
+// $module/@v/list, $module/@v/$version.{info,mod,zip} or $module/@latest.
+// Matching the protocol positively instead of excluding /api/ keeps the console
+// free of the UI's own traffic (index.html, /assets/*, favicon), which is served
+// by the same mux and is not something the go tool ever asks for.
 func isProxyRequestPath(path string) bool {
-	return path != "/" && !strings.HasPrefix(path, "/api/")
+	return strings.Contains(path, "/@v/") || strings.HasSuffix(path, "/@latest")
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {

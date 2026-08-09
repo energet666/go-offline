@@ -31,6 +31,38 @@ func TestDownloadStateLogsKeepHeadAndTail(t *testing.T) {
 	}
 }
 
+func TestIsProxyRequestPath(t *testing.T) {
+	proxyPaths := []string{
+		"/github.com/pkg/errors/@v/list",
+		"/github.com/pkg/errors/@v/v0.9.1.info",
+		"/github.com/pkg/errors/@v/v0.9.1.mod",
+		"/github.com/pkg/errors/@v/v0.9.1.zip",
+		"/github.com/pkg/errors/@latest",
+		"/gopkg.in/yaml.v3/@v/v3.0.1.zip",
+	}
+	for _, path := range proxyPaths {
+		if !isProxyRequestPath(path) {
+			t.Errorf("%q: want a proxy request", path)
+		}
+	}
+
+	uiPaths := []string{
+		"/",
+		"/index.html",
+		"/assets/index-abc123.js",
+		"/assets/index-abc123.css",
+		"/favicon.ico",
+		"/vite.svg",
+		"/api/modules",
+		"/api/proxy-requests",
+	}
+	for _, path := range uiPaths {
+		if isProxyRequestPath(path) {
+			t.Errorf("%q: want no proxy request", path)
+		}
+	}
+}
+
 func TestDownloadStateLogsBelowLimitAreUntouched(t *testing.T) {
 	var ds downloadState
 	for i := range headLogLines {
