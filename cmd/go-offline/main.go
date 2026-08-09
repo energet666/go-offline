@@ -15,6 +15,13 @@ import (
 	httphandlers "go-offline/internal/4_presentation/http"
 )
 
+// Подставляются линковщиком при сборке в CI: -ldflags "-X main.version=... -X main.buildTime=...".
+// В локальной сборке остаются значениями по умолчанию.
+var (
+	version   = "dev"
+	buildTime = "unknown"
+)
+
 func main() {
 	var (
 		listen      = flag.String("listen", ":8080", "HTTP listen address")
@@ -79,7 +86,7 @@ func main() {
 	mux := http.NewServeMux()
 	srv.RegisterRoutes(mux)
 
-	log.Printf("go-offline started on %s", *listen)
+	log.Printf("go-offline %s (built %s) started on %s", version, buildTime, *listen)
 	log.Printf("cache directory: %s", *cacheDir)
 	log.Printf("work directory: %s", *workDir)
 	log.Printf("upstream timeout: %s", (*httpTimeout).String())
