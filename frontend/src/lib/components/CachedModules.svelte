@@ -164,7 +164,7 @@
 </script>
 
 <div
-	class="card bg-base-100/80 backdrop-blur-md shadow-2xl border border-base-content/10"
+	class="card bg-base-100/80 backdrop-blur-md shadow-2xl border border-base-content/10 mb-8"
 >
 	<div class="card-body">
 		<h3 class="card-title text-xl font-bold">Кэшированные модули</h3>
